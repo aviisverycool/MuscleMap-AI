@@ -1,0 +1,41 @@
+/* ===== GLOBAL RESET ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Make textareas and inputs look clean */
+input, textarea {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: #ff4d4d;
+}
+
+/* Buttons */
+button {
+  background: #ff4d4d;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+button:hover {
+  background: #e63e3e;
+}
+
+/* Smooth spacing for the whole app */
+div {
+  line-height: 1.5;
+}
