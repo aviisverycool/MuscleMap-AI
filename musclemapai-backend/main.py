@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from models import ChatRequest, ChatResponse
+from models import ChatRequest, ChatResponse, TitleRequest, TitleResponse
 from input import generate_response, load_memory, API_KEY
 import uvicorn
 
@@ -36,3 +36,16 @@ def chat(req: ChatRequest):
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+def generate_title(req: TitleRequest):
+    try:
+        prompt = f"""Give this conversation a short 4-6 word title based on the user's first message. 
+Respond with ONLY the title, no quotes, no punctuation at the end.
+
+User message: {req.message}"""
+        
+        from input import ask_model
+        title = ask_model(prompt).strip().strip('"').strip("'")
+        return {"title": title}
+    except Exception as e:
+        return {"title": "New Chat"}

@@ -1,10 +1,20 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 from typing import List, Optional, Any
 
-class ChatRequest(BaseModel):
+@dataclass
+class ChatRequest:
     session_id: str
     message: str
     history: Optional[List[Any]] = None
 
-class ChatResponse(BaseModel):
+@dataclass
+class ChatResponse:
     message: str
+
+@dataclass
+class TitleRequest:
+    message: str
+
+@dataclass
+class TitleResponse:
+    title: str
