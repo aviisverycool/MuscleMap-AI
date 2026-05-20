@@ -28,6 +28,24 @@ const LogoutIcon = () => (
   </svg>
 );
 
+const TrashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
+
+const PencilIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
 const CloseIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -334,6 +352,9 @@ export default function App() {
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef(null);
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -401,6 +422,33 @@ export default function App() {
     });
     if (error) console.error("Error saving conversation:", error);
   }, [user]);
+
+  // Delete conversation
+  async function deleteConversation(e, id) {
+    e.stopPropagation();
+    const { error } = await supabase.from("conversations").delete().eq("id", id);
+    if (error) { console.error("Error deleting:", error); return; }
+    setConversationData((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setConversationOrder((prev) => prev.filter((cid) => cid !== id));
+    if (currentConversationId === id) setCurrentConversationId(null);
+  }
+
+  // Start renaming
+  function startRename(e, id, currentTitle) {
+    e.stopPropagation();
+    setRenamingId(id);
+    setRenameValue(currentTitle);
+    setTimeout(() => renameInputRef.current?.focus(), 50);
+  }
+
+  // Confirm rename
+  async function confirmRename(id) {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingId(null); return; }
+    setConversationData((prev) => ({ ...prev, [id]: { ...prev[id], title: trimmed } }));
+    setRenamingId(null);
+    await supabase.from("conversations").update({ title: trimmed }).eq("id", id);
+  }
 
   function handleTextareaChange(e) {
     setMessage(e.target.value);
@@ -567,13 +615,37 @@ export default function App() {
           {conversationOrder.map((id) => {
             const c = conversationData[id];
             if (!c) return null;
+            const isRenaming = renamingId === id;
             return (
               <div
                 key={id}
                 className={`conversation-item ${currentConversationId === id ? "active" : ""}`}
-                onClick={() => setCurrentConversationId(id)}
+                onClick={() => !isRenaming && setCurrentConversationId(id)}
               >
-                {c.title}
+                {isRenaming ? (
+                  <div className="rename-row" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      ref={renameInputRef}
+                      className="rename-input"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") confirmRename(id);
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                    />
+                    <button className="convo-action-btn confirm" onClick={() => confirmRename(id)}><CheckIcon /></button>
+                    <button className="convo-action-btn cancel" onClick={() => setRenamingId(null)}><CloseIcon /></button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="convo-title">{c.title}</span>
+                    <div className="convo-actions">
+                      <button className="convo-action-btn" title="Rename" onClick={(e) => startRename(e, id, c.title)}><PencilIcon /></button>
+                      <button className="convo-action-btn delete" title="Delete" onClick={(e) => deleteConversation(e, id)}><TrashIcon /></button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}

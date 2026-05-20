@@ -224,18 +224,6 @@ body {
   text-transform: uppercase;
 }
 
-.conversation-item {
-  padding: 9px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: background 0.15s, color 0.15s;
-  margin: 1px 0;
-}
 .conversation-item:hover { background: var(--hover-bg); color: var(--text-primary); }
 .conversation-item.active { background: var(--active-bg); color: var(--text-primary); font-weight: 500; }
 
@@ -406,9 +394,80 @@ body {
   30% { transform: translateY(-6px); opacity: 1; }
 }
 
-/* ══════════════════════════════
-   SETTINGS MODAL
-══════════════════════════════ */
+/* ── Conversation rename/delete ── */
+.conversation-item {
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+  margin: 1px 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.convo-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convo-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.conversation-item:hover .convo-actions,
+.conversation-item.active .convo-actions {
+  display: flex;
+}
+
+.convo-action-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.convo-action-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.convo-action-btn.delete:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.convo-action-btn.confirm:hover { background: rgba(16, 163, 127, 0.15); color: #10a37f; }
+.convo-action-btn.cancel:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--settings-input-border-focus);
+  background: var(--settings-input-bg);
+  color: var(--settings-input-color);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
 .modal-overlay {
   position: fixed;
   inset: 0;
