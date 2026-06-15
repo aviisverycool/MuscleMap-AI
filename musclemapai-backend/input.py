@@ -7,7 +7,7 @@ load_dotenv()
 
 # ====== SETUP ======
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
-MODEL = "llama3.1-8b"
+MODEL = "llama-3.3-70b"
 API_KEY = os.getenv("CEREBRAS_API_KEY")
 
 # ====== MEMORY FILE ======
@@ -77,7 +77,7 @@ DURATION_PLAN_KEYWORDS = [
 def needs_duration(text):
     t = text.lower()
     has_plan_kw = any(kw in t for kw in DURATION_PLAN_KEYWORDS)
-    has_number = bool(re.search(r'\\b\\d+\\s*(day|week|month)', t))
+    has_number = bool(re.search(r'\b\d+\s*(day|week|month)', t))
     return has_plan_kw and not has_number
 
 # ====== STRICT JSON VALIDATION ======
@@ -195,7 +195,7 @@ def safe_model_call(prompt, retries=3):
 
     return '{"intro":"Error formatting response","stretches":[],"advice":"Please try again.","question":""}'
 
-# ====== API CALL ======
+# ====== API CALL =====
 def ask_model(prompt):
     global chat_history
 
@@ -212,12 +212,13 @@ def ask_model(prompt):
         "model": MODEL,
         "messages": messages,
         "temperature": 0,
-        "max_tokens": 2200
+        "max_tokens": 4000
     }
 
     response = requests.post(CEREBRAS_URL, headers=headers, json=data)
 
     if response.status_code != 200:
+        print(f"API Error {response.status_code}: {response.text}")  # <-- here
         return '{"intro":"API Error","stretches":[],"advice":"Check connection","question":""}'
 
     response_text = response.json()["choices"][0]["message"]["content"].strip()

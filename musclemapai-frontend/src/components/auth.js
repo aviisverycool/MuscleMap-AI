@@ -9,8 +9,18 @@ export default function Auth() {
 
 async function handleAuth() {
   if (mode === "signin") {
-    await supabase.auth.signInWithPassword({ email, password });
-    return;
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      return;
+    } catch (err) {
+      console.error("Sign-in error:", err);
+      alert(err.message || String(err) || "Network error: failed to fetch");
+      return;
+    }
   }
 
   // SIGN UP MODE

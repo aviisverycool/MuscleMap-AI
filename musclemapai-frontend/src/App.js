@@ -376,7 +376,13 @@ export default function App() {
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => setUser(session?.user || null)
     );
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      try {
+        listener?.subscription?.unsubscribe?.();
+      } catch (e) {
+        // ignore
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -413,20 +419,42 @@ export default function App() {
 
   const saveConversation = useCallback(async (convId, messages, title) => {
     if (!user) return;
-    const { error } = await supabase.from("conversations").upsert({
-      id: convId,
-      user_id: user.id,
-      title,
-      messages,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) console.error("Error saving conversation:", error);
+
+    const { data, error: lookupError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error("Error checking conversation ownership:", lookupError);
+      return;
+    }
+
+    if (data) {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ title, messages, updated_at: new Date().toISOString() })
+        .eq("id", convId)
+        .eq("user_id", user.id);
+      if (error) console.error("Error saving conversation:", error);
+    } else {
+      const { error } = await supabase
+        .from("conversations")
+        .insert([{ id: convId, user_id: user.id, title, messages, updated_at: new Date().toISOString() }]);
+      if (error) console.error("Error creating conversation:", error);
+    }
   }, [user]);
 
   // Delete conversation
   async function deleteConversation(e, id) {
     e.stopPropagation();
-    const { error } = await supabase.from("conversations").delete().eq("id", id);
+    const { error } = await supabase
+      .from("conversations")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
     if (error) { console.error("Error deleting:", error); return; }
     setConversationData((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setConversationOrder((prev) => prev.filter((cid) => cid !== id));
@@ -447,7 +475,11 @@ export default function App() {
     if (!trimmed) { setRenamingId(null); return; }
     setConversationData((prev) => ({ ...prev, [id]: { ...prev[id], title: trimmed } }));
     setRenamingId(null);
-    await supabase.from("conversations").update({ title: trimmed }).eq("id", id);
+    await supabase
+      .from("conversations")
+      .update({ title: trimmed })
+      .eq("id", id)
+      .eq("user_id", user?.id);
   }
 
   function handleTextareaChange(e) {
@@ -564,17 +596,29 @@ export default function App() {
           {authMode === "signin" ? (
             <>
               <button className="auth-primary" onClick={async () => {
-                const { error } = await supabase.auth.signInWithPassword({ email: authData.email, password: authData.password });
-                if (error) alert(error.message);
+                try {
+                  const { error } = await supabase.auth.signInWithPassword({ email: authData.email, password: authData.password });
+                  if (error) {
+                    alert(error.message || "Sign-in failed");
+                  }
+                } catch (err) {
+                  console.error("Sign-in error:", err);
+                  alert(err.message || String(err) || "Network error: failed to fetch");
+                }
               }}>Sign In</button>
               <button onClick={() => setAuthMode("signup")}>Don't have an account? Sign Up</button>
             </>
           ) : (
             <>
               <button className="auth-primary" onClick={async () => {
-                const { error } = await supabase.auth.signUp({ email: authData.email, password: authData.password });
-                if (error) alert(error.message);
-                else alert("Check your email to verify your account.");
+                try {
+                  const { error } = await supabase.auth.signUp({ email: authData.email, password: authData.password });
+                  if (error) alert(error.message);
+                  else alert("Check your email to verify your account.");
+                } catch (err) {
+                  console.error("Sign-up error:", err);
+                  alert(err.message || String(err) || "Network error: failed to fetch");
+                }
               }}>Sign Up</button>
               <button onClick={() => setAuthMode("signin")}>Already have an account? Sign In</button>
             </>
