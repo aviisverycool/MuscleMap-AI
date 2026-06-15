@@ -177,6 +177,7 @@ BEHAVIOR RULES:
 
 User request: {user_text}
 
+Use Markdown formatting for readability when helpful. You may include bullet lists and markdown tables inside JSON string values.
 ONLY OUTPUT JSON.
 """
 

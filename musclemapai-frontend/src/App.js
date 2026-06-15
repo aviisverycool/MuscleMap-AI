@@ -68,6 +68,150 @@ const MoonIcon = () => (
   </svg>
 );
 
+function parseMarkdownInline(text, keyPrefix) {
+  const parts = [];
+  let remaining = text;
+  let keyIndex = 0;
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/;
+
+  while (remaining.length) {
+    const match = remaining.match(regex);
+    if (!match) {
+      parts.push(remaining);
+      break;
+    }
+
+    const matchIndex = match.index;
+    if (matchIndex > 0) {
+      parts.push(remaining.slice(0, matchIndex));
+    }
+
+    const token = match[0];
+    const content = token.slice(token.startsWith('**') ? 2 : 1, -1);
+
+    if (token.startsWith('**')) {
+      parts.push(
+        <strong key={`${keyPrefix}-${keyIndex++}`}>{content}</strong>
+      );
+    } else if (token.startsWith('*')) {
+      parts.push(
+        <em key={`${keyPrefix}-${keyIndex++}`}>{content}</em>
+      );
+    } else {
+      parts.push(
+        <code key={`${keyPrefix}-${keyIndex++}`}>{content}</code>
+      );
+    }
+
+    remaining = remaining.slice(matchIndex + token.length);
+  }
+
+  return parts;
+}
+
+function renderMarkdown(text) {
+  if (!text) return null;
+
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let paragraphLines = [];
+  let blockIndex = 0;
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) return;
+    blocks.push(
+      <p key={`p-${blockIndex++}`}>{parseMarkdownInline(paragraphLines.join(' '), `p-${blockIndex}`)}</p>
+    );
+    paragraphLines = [];
+  };
+
+  const parseTableRow = (rowText) => rowText.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed === '') {
+      flushParagraph();
+      continue;
+    }
+
+    const listMatch = trimmed.match(/^((?:\*|-|\+)|\d+\.)\s+(.*)$/);
+    const nextLine = lines[i + 1]?.trim();
+    const tableHeaderMatch = trimmed.match(/^\|(.+)\|$/);
+    const tableDividerMatch = nextLine?.match(/^\|[\s:-|]+\|$/);
+
+    if (listMatch) {
+      flushParagraph();
+      const listItems = [];
+      const isOrdered = /^\d+\./.test(listMatch[1]);
+
+      while (i < lines.length) {
+        const itemLine = lines[i].trim();
+        const itemMatch = itemLine.match(/^((?:\*|-|\+)|\d+\.)\s+(.*)$/);
+        if (!itemMatch) break;
+        listItems.push(
+          <li key={`li-${blockIndex}-${listItems.length}`}>
+            {parseMarkdownInline(itemMatch[2], `li-${blockIndex}-${listItems.length}`)}
+          </li>
+        );
+        i += 1;
+      }
+
+      blocks.push(
+        isOrdered ? (
+          <ol key={`ol-${blockIndex++}`}>{listItems}</ol>
+        ) : (
+          <ul key={`ul-${blockIndex++}`}>{listItems}</ul>
+        )
+      );
+      i -= 1;
+      continue;
+    }
+
+    if (tableHeaderMatch && tableDividerMatch) {
+      flushParagraph();
+      const headers = parseTableRow(trimmed);
+      i += 2;
+      const rows = [];
+
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        const cells = parseTableRow(lines[i]);
+        rows.push(cells);
+        i += 1;
+      }
+
+      blocks.push(
+        <table key={`table-${blockIndex++}`}>
+          <thead>
+            <tr>
+              {headers.map((cell, idx) => (
+                <th key={`th-${blockIndex}-${idx}`}>{cell}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`tr-${blockIndex}-${rowIndex}`}>
+                {row.map((cell, cellIndex) => (
+                  <td key={`td-${blockIndex}-${rowIndex}-${cellIndex}`}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+      i -= 1;
+      continue;
+    }
+
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+  return <>{blocks}</>;
+}
+
 const EyeIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -724,7 +868,9 @@ export default function App() {
               <div key={i} className={`msg-row ${m.role}`}>
                 <div className="msg-inner">
                   {m.role === "assistant" && <div className="msg-avatar assistant">M</div>}
-                  <div className="msg-bubble">{m.text}</div>
+                  <div className="msg-bubble">
+                    {m.role === "assistant" ? renderMarkdown(m.text) : m.text}
+                  </div>
                   {m.role === "user" && (
                     <div className="msg-avatar user">
                       {user.user_metadata?.display_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || "U"}
