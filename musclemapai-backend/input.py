@@ -13,10 +13,10 @@ API_KEY = os.getenv("CEREBRAS_API_KEY")
 # ====== MEMORY FILE ======
 MEMORY_FILE = "memory.json"
 
-# ====== MEMORY ======
-chat_history = []
-last_context = None
-last_request = None
+# ====== MEMORY (per-session; keyed by conversation id) ======
+chat_history = {}    # session_id -> list of messages
+last_context = {}    # session_id -> pending follow-up question
+last_request = {}    # session_id -> user's original request awaiting an answer
 
 user_profile = {
     "goals": [],
@@ -25,32 +25,58 @@ user_profile = {
 }
 
 # ====== LOAD/SAVE MEMORY ======
+KNOWN_PROFILE_KEYS = ("goals", "injuries", "preferences")
+
 def load_memory():
     global user_profile
+    profile = {}
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r") as f:
-                user_profile = json.load(f)
-        except:
-            pass
+                profile = json.load(f)
+        except Exception:
+            profile = {}
+
+    if not isinstance(profile, dict):
+        profile = {}
+
+    # Only keep known keys and guarantee they are lists, so stale or
+    # corrupted memory files can never crash update_user_profile or leak
+    # junk into the LLM prompt.
+    user_profile = {
+        key: (profile[key] if isinstance(profile.get(key), list) else [])
+        for key in KNOWN_PROFILE_KEYS
+    }
 
 
 def save_memory():
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(user_profile, f)
+    try:
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(user_profile, f)
+    except Exception as e:
+        print(f"Warning: could not save memory: {e}")
 
 # ====== PROFILE UPDATE ======
 def update_user_profile(text):
     t = text.lower()
+    changed = False
 
-    if "run" in t and "running" not in user_profile["goals"]:
+    negated = bool(re.search(r"\b(?:don'?t|do not|not|never|hate|avoid|no)\b", t))
+
+    if re.search(r"\b(?:run|running|jog|jogging)\b", t) and not negated and "running" not in user_profile["goals"]:
         user_profile["goals"].append("running")
+        changed = True
 
-    if "knee pain" in t and "knee" not in user_profile["injuries"]:
+    if re.search(r"\bknee pain\b", t) and not negated and "knee" not in user_profile["injuries"]:
         user_profile["injuries"].append("knee")
+        changed = True
 
-    if ("5-10" in t or "5 to 10" in t) and "short workouts" not in user_profile["preferences"]:
+    if re.search(r"\b5[- ]?10\b", t) and not negated and "short workouts" not in user_profile["preferences"]:
         user_profile["preferences"].append("short workouts")
+        changed = True
+
+    if changed:
+        save_memory()
 
 # ====== CASUAL ======
 GREETINGS = {"hi", "hello", "hey", "howdy", "sup", "yo", "hiya"}
@@ -81,55 +107,72 @@ def needs_duration(text):
     return has_plan_kw and not has_number
 
 # ====== STRICT JSON VALIDATION ======
+def _as_str(value):
+    return value if isinstance(value, str) else ""
+
 def validate_json_structure(data):
     required_keys = {"intro", "stretches", "advice", "question"}
 
     if not isinstance(data, dict):
         return False
 
-    if set(data.keys()) != required_keys:
+    # Require at least the required keys (allow the LLM to add bonus keys
+    # instead of failing the whole response).
+    if not required_keys.issubset(data.keys()):
         return False
+
+    # String fields must actually be strings (LLMs sometimes emit null)
+    for key in ("intro", "advice", "question"):
+        if not isinstance(data[key], str):
+            return False
 
     if not isinstance(data["stretches"], list):
         return False
 
     for item in data["stretches"]:
+        if not isinstance(item, dict):
+            return False
         if not all(k in item for k in ("step", "name", "text")):
+            return False
+        if not isinstance(item["name"], str) or not isinstance(item["text"], str):
             return False
 
     return True
 
 # ====== MAIN LOGIC ======
-def generate_response(text):
-    global last_context, last_request
-
+def generate_response(text, session_id="default"):
     update_user_profile(text)
 
     casual = get_casual_reply(text)
     if casual:
+        # A greeting changes the subject — drop any pending follow-up
+        # question so it can't hijack the user's next real message.
+        last_context.pop(session_id, None)
+        last_request.pop(session_id, None)
         return casual
 
-    if last_context:
-        combined = f"{last_request} for {text}"
-        raw = safe_model_call(build_prompt(combined))
-        last_context = None
-        last_request = None
+    pending = last_context.get(session_id)
+    if pending:
+        combined = f"{last_request.get(session_id)} for {text}"
+        raw = safe_model_call(build_prompt(combined), session_id)
+        last_context.pop(session_id, None)
+        last_request.pop(session_id, None)
         return format_response(raw)
 
     if needs_duration(text):
         question = "How many days would you like the plan to cover?"
-        last_context = question
-        last_request = text
+        last_context[session_id] = question
+        last_request[session_id] = text
         return question
 
-    raw = safe_model_call(build_prompt(text))
+    raw = safe_model_call(build_prompt(text), session_id)
 
     try:
         data = json.loads(raw)
-        question = data.get("question", "").strip()
+        question = _as_str(data.get("question")).strip()
         if question:
-            last_context = question
-            last_request = text
+            last_context[session_id] = question
+            last_request[session_id] = text
     except:
         pass
 
@@ -153,8 +196,8 @@ STRICT SCHEMA:
 }}
 
 HARD RULES:
-- ALL 4 keys MUST exist
-- NEVER add extra keys
+- ALL required keys MUST exist.
+- If you include extra keys, keep ONLY the ones listed in the schema.
 - NEVER output text outside JSON
 - stretches must ALWAYS be a list (can be empty [])
 - question must ALWAYS exist ("" if none)
@@ -182,9 +225,10 @@ ONLY OUTPUT JSON.
 """
 
 # ====== SAFE MODEL CALL (RETRY) ======
-def safe_model_call(prompt, retries=3):
-    for _ in range(retries):
-        raw = ask_model(prompt)
+def safe_model_call(prompt, session_id="default", retries=3):
+    for attempt in range(retries):
+        # Only record the final attempt so failed retries don't pollute history
+        raw = ask_model(prompt, session_id, record=(attempt == retries - 1))
         try:
             data = json.loads(raw)
             if validate_json_structure(data):
@@ -197,12 +241,18 @@ def safe_model_call(prompt, retries=3):
     return '{"intro":"Error formatting response","stretches":[],"advice":"Please try again.","question":""}'
 
 # ====== API CALL =====
-def ask_model(prompt):
-    global chat_history
+def ask_model(prompt, session_id="default", record=True):
+    if not API_KEY:
+        print("ERROR: CEREBRAS_API_KEY not set in .env")
+        return json.dumps({
+            "intro": "API Error: CEREBRAS_API_KEY not set in .env",
+            "stretches": [],
+            "advice": "Add your Cerebras API key to musclemapai-backend/.env",
+            "question": "",
+        })
 
-    messages = chat_history[-10:] + [
-        {"role": "user", "content": prompt}
-    ]
+    history = chat_history.setdefault(session_id, [])
+    messages = history[-10:] + [{"role": "user", "content": prompt}]
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -216,16 +266,39 @@ def ask_model(prompt):
         "max_tokens": 4000
     }
 
-    response = requests.post(CEREBRAS_URL, headers=headers, json=data)
+    try:
+        response = requests.post(CEREBRAS_URL, headers=headers, json=data, timeout=60)
+    except requests.RequestException as e:
+        print(f"API request failed: {e}")
+        return json.dumps({
+            "intro": "API Error: could not reach Cerebras",
+            "stretches": [],
+            "advice": "Check your network connection",
+            "question": "",
+        })
 
     if response.status_code != 200:
-        print(f"API Error {response.status_code}: {response.text}")  # <-- here
-        return '{"intro":"API Error","stretches":[],"advice":"Check connection","question":""}'
+        detail = "Unknown error"
+        try:
+            detail = response.json().get("message", response.text)
+        except Exception:
+            detail = response.text
+        print(f"API Error {response.status_code}: {detail}")
+        return json.dumps({
+            "intro": f"API Error ({response.status_code}): {detail}",
+            "stretches": [],
+            "advice": "Check connection",
+            "question": "",
+        })
 
     response_text = response.json()["choices"][0]["message"]["content"].strip()
 
-    chat_history.append({"role": "user", "content": prompt})
-    chat_history.append({"role": "assistant", "content": response_text})
+    if record:
+        history.append({"role": "user", "content": prompt})
+        history.append({"role": "assistant", "content": response_text})
+        # Bound the in-memory history to avoid unbounded growth
+        if len(history) > 30:
+            del history[: len(history) - 30]
 
     return response_text
 
@@ -236,10 +309,10 @@ def format_response(raw):
     except Exception:
         return "[Formatting error]\n" + raw
 
-    intro = data.get("intro", "").strip()
+    intro = _as_str(data.get("intro")).strip()
     stretches = data.get("stretches", [])
-    advice = data.get("advice", "").strip()
-    question = data.get("question", "").strip()
+    advice = _as_str(data.get("advice")).strip()
+    question = _as_str(data.get("question")).strip()
 
     output = []
 
@@ -249,7 +322,8 @@ def format_response(raw):
     if stretches:
         output.append("")
         for s in stretches:
-            output.append(f"* {s['name']}: {s['text']}")  # ← only line that changed
+            if isinstance(s, dict):
+                output.append(f"* {_as_str(s.get('name'))}: {_as_str(s.get('text'))}")
 
     if advice:
         output.append("")

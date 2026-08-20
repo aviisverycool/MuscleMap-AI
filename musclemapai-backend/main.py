@@ -16,7 +16,7 @@ app = FastAPI(title="Musclemap AI", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,7 +29,7 @@ def root():
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     try:
-        response = generate_response(req.message)
+        response = generate_response(req.message, req.session_id)
         return ChatResponse(message=response)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -42,7 +42,11 @@ Respond with ONLY the title, no quotes, no punctuation at the end.
 
 User message: {req.message}"""
 
-        title = ask_model(prompt).strip().strip('"').strip("'")
+        # record=False so title generation never pollutes conversation history
+        title = ask_model(prompt, record=False).strip().strip('"').strip("'")
+        if title.startswith("{"):
+            # The model returned an error JSON object (e.g. bad API key)
+            return {"title": "New Chat"}
         return {"title": title}
     except Exception as e:
         return {"title": "New Chat"}

@@ -3,6 +3,8 @@ import { supabase } from "./supabase";
 import "./App.css";
 import bg from "./background-minimal.png";
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+
 // ── Icons ──────────────────────────────────────────────
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -181,20 +183,21 @@ function renderMarkdown(text) {
         i += 1;
       }
 
+      const tableIndex = blockIndex;
       blocks.push(
         <table key={`table-${blockIndex++}`}>
           <thead>
             <tr>
               {headers.map((cell, idx) => (
-                <th key={`th-${blockIndex}-${idx}`}>{cell}</th>
+                <th key={`th-${tableIndex}-${idx}`}>{cell}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, rowIndex) => (
-              <tr key={`tr-${blockIndex}-${rowIndex}`}>
+              <tr key={`tr-${tableIndex}-${rowIndex}`}>
                 {row.map((cell, cellIndex) => (
-                  <td key={`td-${blockIndex}-${rowIndex}-${cellIndex}`}>{cell}</td>
+                  <td key={`td-${tableIndex}-${rowIndex}-${cellIndex}`}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -231,7 +234,6 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
     user.user_metadata?.display_name || user.email?.split("@")[0] || ""
   );
   const [newEmail, setNewEmail] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCurrentPw, setShowCurrentPw] = useState(false);
@@ -279,7 +281,6 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
     if (error) showFeedback("error", error.message);
     else {
       showFeedback("success", "Password updated!");
-      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     }
@@ -487,7 +488,13 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authData, setAuthData] = useState({ email: "", password: "" });
   const [authMode, setAuthMode] = useState("signin");
-  const [theme, setTheme] = useState("dark"); // 'dark' | 'light'
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("musclemap-theme") || "dark";
+    } catch {
+      return "dark";
+    }
+  }); // 'dark' | 'light'
   const [showSettings, setShowSettings] = useState(false);
 
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -502,10 +509,16 @@ export default function App() {
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const savedIdsRef = useRef(new Set()); // conversation ids that exist in Supabase
 
-  // Apply theme to root
+  // Apply theme to root + persist
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("musclemap-theme", theme);
+    } catch {
+      // ignore
+    }
   }, [theme]);
 
   function toggleTheme() {
@@ -546,16 +559,19 @@ export default function App() {
 
       if (error) { console.error("Error loading conversations:", error); return; }
 
-      if (data && data.length > 0) {
-        const formatted = {};
-        const order = [];
-        data.forEach((c) => {
-          formatted[c.id] = { title: c.title, messages: c.messages || [] };
-          order.push(c.id);
-        });
-        setConversationData(formatted);
-        setConversationOrder(order);
-      }
+      const formatted = {};
+      const order = [];
+      (data || []).forEach((c) => {
+        formatted[c.id] = { title: c.title, messages: c.messages || [] };
+        order.push(c.id);
+      });
+      setConversationData(formatted);
+      setConversationOrder(order);
+      savedIdsRef.current = new Set(order);
+      setCurrentConversationId((prev) => {
+        if (prev && formatted[prev]) return prev;
+        return order[0] ?? null;
+      });
     }
 
     loadConversations();
@@ -583,11 +599,13 @@ export default function App() {
         .eq("id", convId)
         .eq("user_id", user.id);
       if (error) console.error("Error saving conversation:", error);
+      else savedIdsRef.current.add(convId);
     } else {
       const { error } = await supabase
         .from("conversations")
         .insert([{ id: convId, user_id: user.id, title, messages, updated_at: new Date().toISOString() }]);
       if (error) console.error("Error creating conversation:", error);
+      else savedIdsRef.current.add(convId);
     }
   }, [user]);
 
@@ -600,6 +618,7 @@ export default function App() {
       .eq("id", id)
       .eq("user_id", user.id);
     if (error) { console.error("Error deleting:", error); return; }
+    savedIdsRef.current.delete(id);
     setConversationData((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setConversationOrder((prev) => prev.filter((cid) => cid !== id));
     if (currentConversationId === id) setCurrentConversationId(null);
@@ -619,6 +638,9 @@ export default function App() {
     if (!trimmed) { setRenamingId(null); return; }
     setConversationData((prev) => ({ ...prev, [id]: { ...prev[id], title: trimmed } }));
     setRenamingId(null);
+    // Only touch the DB if the conversation has actually been persisted;
+    // otherwise a brand-new chat would error on a row that doesn't exist yet.
+    if (!savedIdsRef.current.has(id)) return;
     await supabase
       .from("conversations")
       .update({ title: trimmed })
@@ -642,7 +664,7 @@ export default function App() {
 
   async function generateTitle(firstMessage) {
     try {
-      const res = await fetch("http://localhost:8000/title", {
+      const res = await fetch(`${API_BASE_URL}/title`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: firstMessage }),
@@ -670,54 +692,58 @@ export default function App() {
       setConversationOrder((prev) => [convId, ...prev]);
     }
 
+    const priorMessages = conversationData[convId]?.messages ?? [];
+    const updatedMessages = [...priorMessages, { role: "user", text: userMsg }];
+
     setConversationData((prev) => ({
       ...prev,
-      [convId]: {
-        ...prev[convId],
-        messages: [...(prev[convId]?.messages ?? []), { role: "user", text: userMsg }],
-      },
+      [convId]: { ...prev[convId], messages: updatedMessages },
     }));
 
+    const isFirstMessage = updatedMessages.length === 1;
+
     try {
-      const res = await fetch("http://localhost:8000/chat", {
+      const res = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: convId, message: userMsg }),
       });
       const data = await res.json();
 
-      setConversationData((prev) => {
-        const isFirstMessage = prev[convId].messages.length === 1;
-        const updatedMessages = [...prev[convId].messages, { role: "assistant", text: data.message }];
-        const updatedConv = { ...prev[convId], messages: updatedMessages };
+      const nextMessages = [...updatedMessages, { role: "assistant", text: data.message }];
 
-        if (isFirstMessage) {
-          generateTitle(userMsg).then((title) => {
-            setConversationData((latest) => ({ ...latest, [convId]: { ...latest[convId], title } }));
-            saveConversation(convId, updatedMessages, title);
-          });
-        } else {
-          saveConversation(convId, updatedMessages, prev[convId].title);
-        }
+      setConversationData((prev) => ({
+        ...prev,
+        [convId]: { ...prev[convId], messages: nextMessages },
+      }));
 
-        return { ...prev, [convId]: updatedConv };
-      });
+      if (isFirstMessage) {
+        const title = await generateTitle(userMsg);
+        setConversationData((prev) => ({ ...prev, [convId]: { ...prev[convId], title } }));
+        saveConversation(convId, nextMessages, title);
+      } else {
+        saveConversation(convId, nextMessages, conversationData[convId]?.title ?? "New Chat");
+      }
     } catch (err) {
       console.error("Frontend → Backend error:", err);
-      setConversationData((prev) => {
-        const updatedMessages = [...prev[convId].messages, { role: "assistant", text: "Sorry, something went wrong. Please try again." }];
-        saveConversation(convId, updatedMessages, prev[convId].title);
-        return { ...prev, [convId]: { ...prev[convId], messages: updatedMessages } };
-      });
+      const errorMessages = [
+        ...updatedMessages,
+        { role: "assistant", text: "Sorry, something went wrong. Please try again." },
+      ];
+      setConversationData((prev) => ({
+        ...prev,
+        [convId]: { ...prev[convId], messages: errorMessages },
+      }));
+      saveConversation(convId, errorMessages, conversationData[convId]?.title ?? "New Chat");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   // ── AUTH SCREEN ────────────────────────────────────────
   if (!user) {
     return (
-      <div className="page">
+      <div className="page" style={{ backgroundImage: `url(${bg})` }}>
         <div className="auth-card">
           <h1>MuscleMap AI</h1>
           <p>{authMode === "signin" ? "Sign in to continue" : "Create your account"}</p>
@@ -774,7 +800,7 @@ export default function App() {
 
   const currentMessages = conversationData[currentConversationId]?.messages ?? [];
   const currentTitle = conversationData[currentConversationId]?.title ?? "MuscleMap AI";
-  const displayName = user.user_metadata?.display_name || user.email?.[0]?.toUpperCase() || "U";
+  const displayName = user.user_metadata?.display_name || user.email?.split("@")[0] || "";
 
   // ── MAIN APP ───────────────────────────────────────────
   return (
@@ -873,7 +899,7 @@ export default function App() {
                   </div>
                   {m.role === "user" && (
                     <div className="msg-avatar user">
-                      {user.user_metadata?.display_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || "U"}
+                      {displayName[0]?.toUpperCase() || "U"}
                     </div>
                   )}
                 </div>
