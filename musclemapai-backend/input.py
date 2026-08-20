@@ -3,6 +3,7 @@ import os
 import json
 import re
 from dotenv import load_dotenv
+from supabase_store import load_profile, save_profile, load_history, save_history, load_state, save_state, clear_state
 load_dotenv()
 
 # ====== SETUP ======
@@ -29,13 +30,15 @@ KNOWN_PROFILE_KEYS = ("goals", "injuries", "preferences")
 
 def load_memory():
     global user_profile
-    profile = {}
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
-                profile = json.load(f)
-        except Exception:
-            profile = {}
+    profile = load_profile()
+    if profile is None:
+        profile = {}
+        if os.path.exists(MEMORY_FILE):
+            try:
+                with open(MEMORY_FILE, "r") as f:
+                    profile = json.load(f)
+            except Exception:
+                profile = {}
 
     if not isinstance(profile, dict):
         profile = {}
@@ -50,6 +53,10 @@ def load_memory():
 
 
 def save_memory():
+    try:
+        save_profile(user_profile)
+    except Exception as e:
+        print(f"Warning: could not save memory to Supabase: {e}")
     try:
         with open(MEMORY_FILE, "w") as f:
             json.dump(user_profile, f)
@@ -140,6 +147,40 @@ def validate_json_structure(data):
     return True
 
 # ====== MAIN LOGIC ======
+def _get_history(session_id):
+    if session_id not in chat_history:
+        stored = load_history(session_id)
+        chat_history[session_id] = stored if stored is not None else []
+    return chat_history[session_id]
+
+
+def _load_state(session_id):
+    if session_id in last_context or session_id in last_request:
+        return
+    state = load_state(session_id)
+    if state:
+        last_context[session_id] = state["context"]
+        last_request[session_id] = state["request"]
+
+
+def _set_state(session_id, question, request):
+    last_context[session_id] = question
+    last_request[session_id] = request
+    try:
+        save_state(session_id, question, request)
+    except Exception as e:
+        print(f"Warning: could not save state to Supabase: {e}")
+
+
+def _clear_state(session_id):
+    last_context.pop(session_id, None)
+    last_request.pop(session_id, None)
+    try:
+        clear_state(session_id)
+    except Exception as e:
+        print(f"Warning: could not clear state in Supabase: {e}")
+
+
 def generate_response(text, session_id="default"):
     update_user_profile(text)
 
@@ -147,22 +188,20 @@ def generate_response(text, session_id="default"):
     if casual:
         # A greeting changes the subject — drop any pending follow-up
         # question so it can't hijack the user's next real message.
-        last_context.pop(session_id, None)
-        last_request.pop(session_id, None)
+        _clear_state(session_id)
         return casual
 
+    _load_state(session_id)
     pending = last_context.get(session_id)
     if pending:
         combined = f"{last_request.get(session_id)} for {text}"
         raw = safe_model_call(build_prompt(combined), session_id)
-        last_context.pop(session_id, None)
-        last_request.pop(session_id, None)
+        _clear_state(session_id)
         return format_response(raw)
 
     if needs_duration(text):
         question = "How many days would you like the plan to cover?"
-        last_context[session_id] = question
-        last_request[session_id] = text
+        _set_state(session_id, question, text)
         return question
 
     raw = safe_model_call(build_prompt(text), session_id)
@@ -171,8 +210,7 @@ def generate_response(text, session_id="default"):
         data = json.loads(raw)
         question = _as_str(data.get("question")).strip()
         if question:
-            last_context[session_id] = question
-            last_request[session_id] = text
+            _set_state(session_id, question, text)
     except:
         pass
 
@@ -251,7 +289,7 @@ def ask_model(prompt, session_id="default", record=True):
             "question": "",
         })
 
-    history = chat_history.setdefault(session_id, [])
+    history = _get_history(session_id)
     messages = history[-10:] + [{"role": "user", "content": prompt}]
 
     headers = {
@@ -299,6 +337,10 @@ def ask_model(prompt, session_id="default", record=True):
         # Bound the in-memory history to avoid unbounded growth
         if len(history) > 30:
             del history[: len(history) - 30]
+        try:
+            save_history(session_id, history)
+        except Exception as e:
+            print(f"Warning: could not save history to Supabase: {e}")
 
     return response_text
 
