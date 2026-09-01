@@ -1,10 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { inject } from "@vercel/analytics";
 import App from "./App";
 import NotFound from "./NotFound";
 import packageInfo from "../package.json";
 import "./index.css";
+
+inject();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
