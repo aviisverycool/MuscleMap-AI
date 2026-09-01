@@ -579,7 +579,7 @@ export default function App() {
   function handleTextareaChange(e) {
     setMessage(e.target.value);
     e.target.style.height = "auto";
-    e.target.style.height = Math.min(e.target.scrollHeight, 180) + "px";
+    e.target.style.height = Math.min(e.target.scrollHeight, 260) + "px";
   }
 
   const handleBodyPartSelect = useCallback((bodyPart) => {
@@ -589,7 +589,7 @@ export default function App() {
       if (!textarea) return;
       textarea.focus();
       textarea.style.height = "auto";
-      textarea.style.height = Math.min(textarea.scrollHeight, 180) + "px";
+      textarea.style.height = Math.min(textarea.scrollHeight, 260) + "px";
     });
   }, []);
 
@@ -917,7 +917,7 @@ export default function App() {
                 ref={textareaRef}
                 placeholder="Message MuscleMap AI..."
                 value={message}
-                rows={1}
+                rows={3}
                 onChange={handleTextareaChange}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
