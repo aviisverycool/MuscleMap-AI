@@ -83,6 +83,8 @@ User message: {req.message}"""
             record=False,
             structured=False,
             use_persona=False,
+            include_history=False,
+            max_tokens=24,
         ).strip().strip('"').strip("'")
         if title.startswith("{"):
             # The model returned an error JSON object (e.g. bad API key)

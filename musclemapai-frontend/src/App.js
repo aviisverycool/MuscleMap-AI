@@ -114,26 +114,29 @@ function TypewriterText({ text, animate, onComplete, onProgress }) {
     }
 
     let position = 0;
+    let ticks = 0;
     let timeoutId;
+    const charactersPerTick = Math.max(4, Math.ceil(text.length / 160));
 
     setVisibleLength(0);
 
     const revealNext = () => {
-      position = Math.min(position + 2, text.length);
+      position = Math.min(position + charactersPerTick, text.length);
+      ticks += 1;
       setVisibleLength(position);
 
-      if (position % 20 === 0 || position === text.length) {
+      if (ticks % 8 === 0 || position === text.length) {
         onProgressRef.current?.();
       }
 
       if (position < text.length) {
-        timeoutId = window.setTimeout(revealNext, 18);
+        timeoutId = window.setTimeout(revealNext, 10);
       } else {
         onCompleteRef.current?.();
       }
     };
 
-    timeoutId = window.setTimeout(revealNext, 120);
+    timeoutId = window.setTimeout(revealNext, 60);
     return () => window.clearTimeout(timeoutId);
   }, [animate, text]);
 
@@ -961,11 +964,13 @@ export default function App() {
           className={`body-map-drawer ${showBodyMap ? "open" : ""}`}
           aria-hidden={!showBodyMap}
         >
-          <BodyMap3D
-            key={currentConversationId || "new-conversation"}
-            selectedPart={selectedBodyPart}
-            onSelect={handleBodyPartSelect}
-          />
+          {showBodyMap && (
+            <BodyMap3D
+              key={currentConversationId || "new-conversation"}
+              selectedPart={selectedBodyPart}
+              onSelect={handleBodyPartSelect}
+            />
+          )}
         </aside>
 
         <div className="input-area">
