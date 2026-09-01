@@ -133,9 +133,12 @@ body {
 .auth-card {
   width: 360px;
   padding: 40px 36px;
-  background: var(--auth-card-bg);
+  background: transparent;
+  box-shadow: none;
   border-radius: 16px;
   border: 1px solid var(--auth-card-border);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -172,7 +175,7 @@ body {
 .auth-card button.auth-primary { background: #10a37f; color: var(--text-on-accent); }
 .auth-card button.auth-primary:hover { background: #0d8c6d; }
 .auth-card button:not(.auth-primary) {
-  background: var(--auth-card-bg);
+  background: transparent;
   color: var(--text-primary);
   border: 1px solid var(--settings-input-border);
 }
