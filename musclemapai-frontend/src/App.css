@@ -258,12 +258,20 @@ body {
 .sidebar-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
 
 .app-version {
-  padding: 7px 12px 1px;
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 1100;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--auth-bg);
+  border: 1px solid var(--sidebar-border);
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1;
   letter-spacing: 0.06em;
   user-select: none;
+  pointer-events: none;
 }
 
 /* ── MAIN CHAT ── */
