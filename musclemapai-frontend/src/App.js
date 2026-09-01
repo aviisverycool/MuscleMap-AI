@@ -823,6 +823,9 @@ export default function App() {
           <button className="sidebar-btn" onClick={() => supabase.auth.signOut()}>
             <LogoutIcon /> Sign Out
           </button>
+          <div className="app-version" aria-label="MuscleMap AI version 1.0.0">
+            v1.0.0
+          </div>
         </div>
       </div>
 
