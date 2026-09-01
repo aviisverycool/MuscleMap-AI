@@ -8,8 +8,57 @@ load_dotenv()
 
 # ====== SETUP ======
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
-MODEL = "llama-3.3-70b"
-API_KEY = os.getenv("CEREBRAS_API_KEY")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+
+# Accept a Groq key placed in the project's former Cerebras-only variable so
+# existing local deployments keep working while they migrate the variable name.
+if not GROQ_API_KEY and CEREBRAS_API_KEY and CEREBRAS_API_KEY.startswith("gsk_"):
+    GROQ_API_KEY = CEREBRAS_API_KEY
+    CEREBRAS_API_KEY = None
+
+if GROQ_API_KEY:
+    PROVIDER = "Groq"
+    API_URL = GROQ_URL
+    API_KEY = GROQ_API_KEY
+    MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
+    reasoning_setting = os.getenv("GROQ_REASONING_EFFORT", "medium")
+else:
+    PROVIDER = "Cerebras"
+    API_URL = CEREBRAS_URL
+    API_KEY = CEREBRAS_API_KEY
+    MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b").strip() or "gpt-oss-120b"
+    reasoning_setting = os.getenv("CEREBRAS_REASONING_EFFORT", "medium")
+
+REASONING_EFFORT = reasoning_setting.strip().lower()
+if REASONING_EFFORT not in {"low", "medium", "high"}:
+    REASONING_EFFORT = "medium"
+
+FITNESS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intro": {"type": "string"},
+        "stretches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "step": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["step", "name", "text"],
+                "additionalProperties": False,
+            },
+        },
+        "advice": {"type": "string"},
+        "question": {"type": "string"},
+    },
+    "required": ["intro", "stretches", "advice", "question"],
+    "additionalProperties": False,
+}
 
 # ====== MEMORY FILE ======
 MEMORY_FILE = "memory.json"
@@ -181,7 +230,7 @@ def _clear_state(session_id):
         print(f"Warning: could not clear state in Supabase: {e}")
 
 
-def generate_response(text, session_id="default"):
+def generate_response(text, session_id="default", body_part=None):
     update_user_profile(text)
 
     casual = get_casual_reply(text)
@@ -195,7 +244,7 @@ def generate_response(text, session_id="default"):
     pending = last_context.get(session_id)
     if pending:
         combined = f"{last_request.get(session_id)} for {text}"
-        raw = safe_model_call(build_prompt(combined), session_id)
+        raw = safe_model_call(build_prompt(combined, body_part), session_id)
         _clear_state(session_id)
         return format_response(raw)
 
@@ -204,7 +253,7 @@ def generate_response(text, session_id="default"):
         _set_state(session_id, question, text)
         return question
 
-    raw = safe_model_call(build_prompt(text), session_id)
+    raw = safe_model_call(build_prompt(text, body_part), session_id)
 
     try:
         data = json.loads(raw)
@@ -217,8 +266,14 @@ def generate_response(text, session_id="default"):
     return format_response(raw)
 
 # ====== PROMPT BUILDER ======
-def build_prompt(user_text):
+def build_prompt(user_text, body_part=None):
     profile_block = f"User profile: {json.dumps(user_profile)}"
+    selected_body_part = body_part.strip()[:80] if isinstance(body_part, str) else ""
+    body_context_block = (
+        f"Selected body area from the body map: {json.dumps(selected_body_part)}"
+        if selected_body_part
+        else "Selected body area from the body map: none"
+    )
 
     return f"""
 You must output ONLY valid JSON. No text before or after.
@@ -235,7 +290,7 @@ STRICT SCHEMA:
 
 HARD RULES:
 - ALL required keys MUST exist.
-- If you include extra keys, keep ONLY the ones listed in the schema.
+- Do not include keys that are not listed in the schema.
 - NEVER output text outside JSON
 - stretches must ALWAYS be a list (can be empty [])
 - question must ALWAYS exist ("" if none)
@@ -255,6 +310,7 @@ BEHAVIOR RULES:
 - Never recommend a stretch unless it directly addresses the user's specific complaint
 
 {profile_block}
+{body_context_block}
 
 User request: {user_text}
 
@@ -279,13 +335,13 @@ def safe_model_call(prompt, session_id="default", retries=3):
     return '{"intro":"Error formatting response","stretches":[],"advice":"Please try again.","question":""}'
 
 # ====== API CALL =====
-def ask_model(prompt, session_id="default", record=True):
+def ask_model(prompt, session_id="default", record=True, structured=True):
     if not API_KEY:
-        print("ERROR: CEREBRAS_API_KEY not set in .env")
+        print("ERROR: GROQ_API_KEY or CEREBRAS_API_KEY not set in .env")
         return json.dumps({
-            "intro": "API Error: CEREBRAS_API_KEY not set in .env",
+            "intro": "API Error: no AI provider key is configured",
             "stretches": [],
-            "advice": "Add your Cerebras API key to musclemapai-backend/.env",
+            "advice": "Add GROQ_API_KEY to musclemapai-backend/.env",
             "question": "",
         })
 
@@ -304,12 +360,25 @@ def ask_model(prompt, session_id="default", record=True):
         "max_tokens": 4000
     }
 
+    if MODEL.endswith("gpt-oss-120b"):
+        data["reasoning_effort"] = REASONING_EFFORT
+
+    if structured:
+        data["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "fitness_response",
+                "strict": True,
+                "schema": FITNESS_RESPONSE_SCHEMA,
+            },
+        }
+
     try:
-        response = requests.post(CEREBRAS_URL, headers=headers, json=data, timeout=60)
+        response = requests.post(API_URL, headers=headers, json=data, timeout=60)
     except requests.RequestException as e:
         print(f"API request failed: {e}")
         return json.dumps({
-            "intro": "API Error: could not reach Cerebras",
+            "intro": f"API Error: could not reach {PROVIDER}",
             "stretches": [],
             "advice": "Check your network connection",
             "question": "",
@@ -318,10 +387,14 @@ def ask_model(prompt, session_id="default", record=True):
     if response.status_code != 200:
         detail = "Unknown error"
         try:
-            detail = response.json().get("message", response.text)
+            error_data = response.json()
+            detail = error_data.get("message")
+            if not detail and isinstance(error_data.get("error"), dict):
+                detail = error_data["error"].get("message")
+            detail = detail or response.text
         except Exception:
             detail = response.text
-        print(f"API Error {response.status_code}: {detail}")
+        print(f"{PROVIDER} API Error {response.status_code}: {detail}")
         return json.dumps({
             "intro": f"API Error ({response.status_code}): {detail}",
             "stretches": [],

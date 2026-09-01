@@ -45,7 +45,7 @@ if (awaitingVerification) {
         Please check your inbox and click the link to activate your account.
       </p>
 
-      <p style={{ marginTop: 20, color: "gray" }}>
+      <p style={{ marginTop: 20, color: "var(--text-secondary)" }}>
         After verifying, return here and sign in.
       </p>
     </div>
@@ -75,7 +75,7 @@ if (awaitingVerification) {
       </button>
 
       <p
-        style={{ marginTop: 10, cursor: "pointer", color: "red" }}
+        style={{ marginTop: 10, cursor: "pointer", color: "var(--text-primary)" }}
         onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
       >
         {mode === "signin"

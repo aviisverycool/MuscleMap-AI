@@ -1,4 +1,15 @@
 {
+  "name": "musclemap-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix musclemapai-frontend run build",
+    "start": "./start-all.sh",
+    "test": "npm --prefix musclemapai-frontend test -- --watchAll=false"
+  },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "fastapi": "^0.0.8"
   }

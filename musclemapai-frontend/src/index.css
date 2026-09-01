@@ -23,7 +23,7 @@ textarea:focus {
 /* Buttons */
 button {
   background: #ff4d4d;
-  color: white;
+  color: var(--text-on-accent, #ffffff);
   border: none;
   padding: 10px 16px;
   border-radius: 6px;

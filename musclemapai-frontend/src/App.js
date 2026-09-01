@@ -2,8 +2,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "./supabase";
 import "./App.css";
 import bg from "./background-minimal.png";
+import BodyMap3D from "./components/BodyMap3D";
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:8000/api");
 
 // ── Icons ──────────────────────────────────────────────
 const PlusIcon = () => (
@@ -213,6 +216,47 @@ function renderMarkdown(text) {
 
   flushParagraph();
   return <>{blocks}</>;
+}
+
+function TypewriterText({ text, animate, onComplete, onProgress }) {
+  const [visibleLength, setVisibleLength] = useState(animate ? 0 : text.length);
+  const onCompleteRef = useRef(onComplete);
+  const onProgressRef = useRef(onProgress);
+
+  onCompleteRef.current = onComplete;
+  onProgressRef.current = onProgress;
+
+  useEffect(() => {
+    if (!animate) {
+      setVisibleLength(text.length);
+      return undefined;
+    }
+
+    let position = 0;
+    let timeoutId;
+
+    setVisibleLength(0);
+
+    const revealNext = () => {
+      position = Math.min(position + 2, text.length);
+      setVisibleLength(position);
+
+      if (position % 20 === 0 || position === text.length) {
+        onProgressRef.current?.();
+      }
+
+      if (position < text.length) {
+        timeoutId = window.setTimeout(revealNext, 18);
+      } else {
+        onCompleteRef.current?.();
+      }
+    };
+
+    timeoutId = window.setTimeout(revealNext, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [animate, text]);
+
+  return renderMarkdown(text.slice(0, visibleLength));
 }
 
 const EyeIcon = () => (
@@ -496,13 +540,16 @@ export default function App() {
     }
   }); // 'dark' | 'light'
   const [showSettings, setShowSettings] = useState(false);
+  const [showBodyMap, setShowBodyMap] = useState(false);
 
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [conversationData, setConversationData] = useState({});
   const [conversationOrder, setConversationOrder] = useState([]);
 
   const [message, setMessage] = useState("");
+  const [selectedBodyPart, setSelectedBodyPart] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [typingTarget, setTypingTarget] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef(null);
@@ -654,8 +701,21 @@ export default function App() {
     e.target.style.height = Math.min(e.target.scrollHeight, 180) + "px";
   }
 
+  const handleBodyPartSelect = useCallback((bodyPart) => {
+    setSelectedBodyPart(bodyPart);
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.style.height = "auto";
+      textarea.style.height = Math.min(textarea.scrollHeight, 180) + "px";
+    });
+  }, []);
+
   function newConversation() {
     const id = crypto.randomUUID();
+    setSelectedBodyPart(null);
+    setTypingTarget(null);
     const title = "New Chat";
     setConversationData((prev) => ({ ...prev, [id]: { title, messages: [] } }));
     setConversationOrder((prev) => [id, ...prev]);
@@ -706,11 +766,16 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: convId, message: userMsg }),
+        body: JSON.stringify({
+          session_id: convId,
+          message: userMsg,
+          body_part: selectedBodyPart,
+        }),
       });
       const data = await res.json();
 
       const nextMessages = [...updatedMessages, { role: "assistant", text: data.message }];
+      setTypingTarget({ conversationId: convId, messageIndex: updatedMessages.length });
 
       setConversationData((prev) => ({
         ...prev,
@@ -730,6 +795,7 @@ export default function App() {
         ...updatedMessages,
         { role: "assistant", text: "Sorry, something went wrong. Please try again." },
       ];
+      setTypingTarget({ conversationId: convId, messageIndex: updatedMessages.length });
       setConversationData((prev) => ({
         ...prev,
         [convId]: { ...prev[convId], messages: errorMessages },
@@ -886,8 +952,10 @@ export default function App() {
         <div className="response-box">
           {currentMessages.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-title">MuscleMap AI</div>
-              <div>How can I help you today?</div>
+              <div className="empty-state-copy">
+                <div className="empty-state-title">MuscleMap AI</div>
+                <div>Ask a question or open the Body Map tab to select an area.</div>
+              </div>
             </div>
           ) : (
             currentMessages.map((m, i) => (
@@ -895,7 +963,24 @@ export default function App() {
                 <div className="msg-inner">
                   {m.role === "assistant" && <div className="msg-avatar assistant">M</div>}
                   <div className="msg-bubble">
-                    {m.role === "assistant" ? renderMarkdown(m.text) : m.text}
+                    {m.role === "assistant" ? (
+                      <TypewriterText
+                        text={m.text}
+                        animate={
+                          typingTarget?.conversationId === currentConversationId &&
+                          typingTarget?.messageIndex === i
+                        }
+                        onProgress={() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" })}
+                        onComplete={() => {
+                          setTypingTarget((current) => (
+                            current?.conversationId === currentConversationId &&
+                            current?.messageIndex === i
+                              ? null
+                              : current
+                          ));
+                        }}
+                      />
+                    ) : m.text}
                   </div>
                   {m.role === "user" && (
                     <div className="msg-avatar user">
@@ -918,6 +1003,31 @@ export default function App() {
 
           <div ref={messagesEndRef} />
         </div>
+
+        <button
+          type="button"
+          className={`body-map-tab ${showBodyMap ? "open" : ""}`}
+          aria-expanded={showBodyMap}
+          aria-controls="body-map-drawer"
+          onClick={() => setShowBodyMap((open) => !open)}
+        >
+          <span className="body-map-tab-icon" aria-hidden="true">
+            {showBodyMap ? "×" : "+"}
+          </span>
+          <span>Body Map</span>
+        </button>
+
+        <aside
+          id="body-map-drawer"
+          className={`body-map-drawer ${showBodyMap ? "open" : ""}`}
+          aria-hidden={!showBodyMap}
+        >
+          <BodyMap3D
+            key={currentConversationId || "new-conversation"}
+            selectedPart={selectedBodyPart}
+            onSelect={handleBodyPartSelect}
+          />
+        </aside>
 
         <div className="input-area">
           <div>
