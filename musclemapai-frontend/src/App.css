@@ -33,7 +33,7 @@
   --danger-border: rgba(239, 68, 68, 0.25);
   --preview-bg: #2a2a2a;
   --preview-line: #3f3f3f;
-  --preview-bar: #ef4444;
+  --preview-bar: #10a37f;
   --auth-bg: #212121;
   --scrollbar-thumb: rgba(255,255,255,0.2);
   --feedback-success-bg: rgba(16, 163, 127, 0.15);
@@ -44,9 +44,6 @@
   --feedback-error-color: #f7f9fc;
   --body-map-border: rgba(255, 255, 255, 0.14);
   --body-map-toolbar: rgba(8, 13, 17, 0.78);
-  --account-accent: #ef4444;
-  --account-accent-hover: #dc2626;
-  --account-accent-soft: rgba(239, 68, 68, 0.12);
 }
 
 [data-theme="light"] {
@@ -80,7 +77,7 @@
   --danger-border: rgba(239, 68, 68, 0.2);
   --preview-bg: #f0f0f0;
   --preview-line: #ddd;
-  --preview-bar: #ef4444;
+  --preview-bar: #10a37f;
   --auth-bg: #f2f2f2;
   --scrollbar-thumb: rgba(0,0,0,0.2);
   --feedback-success-bg: rgba(16, 163, 127, 0.1);
@@ -128,12 +125,12 @@ body {
 .auth-card {
   width: 360px;
   padding: 40px 36px;
-  background: var(--bg-overlay);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  background: transparent;
+  box-shadow: none;
   border-radius: 16px;
   border: 1px solid var(--sidebar-border);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -141,8 +138,7 @@ body {
   transition: background 0.25s, border-color 0.25s;
 }
 
-.auth-card:not(.notfound-card) h1 { font-size: 22px; font-weight: 700; color: var(--account-accent); margin-bottom: 4px; }
-.auth-card.notfound-card h1 { font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.auth-card h1 { font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
 .auth-card p { color: var(--text-secondary); font-size: 14px; margin-bottom: 6px; }
 
 .auth-card input {
@@ -157,7 +153,7 @@ body {
   transition: background 0.25s, border-color 0.2s;
 }
 .auth-card input::placeholder { color: var(--text-dim); }
-.auth-card input:focus { border-color: var(--account-accent); }
+.auth-card input:focus { border-color: var(--input-border-focus); }
 
 .auth-card button {
   width: 100%;
@@ -169,8 +165,12 @@ body {
   cursor: pointer;
   transition: background 0.2s;
 }
-.auth-card button.auth-primary { background: var(--account-accent); color: #ffffff; }
-.auth-card button.auth-primary:hover { background: var(--account-accent-hover); }
+.auth-card button.auth-primary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--input-border);
+}
+.auth-card button.auth-primary:hover { background: var(--hover-bg); }
 .auth-card button:not(.auth-primary) {
   background: transparent;
   color: var(--text-primary);
@@ -871,7 +871,7 @@ body {
 .settings-header h2 {
   font-size: 17px;
   font-weight: 700;
-  color: var(--account-accent);
+  color: var(--text-primary);
 }
 
 .modal-close-btn {
@@ -920,7 +920,7 @@ body {
   width: 100%;
 }
 .settings-tab:hover { background: var(--hover-bg); color: var(--text-primary); }
-.settings-tab.active { background: var(--account-accent-soft); color: var(--account-accent); font-weight: 600; }
+.settings-tab.active { background: var(--tab-active-bg); color: var(--tab-active-color); font-weight: 600; }
 .settings-tab.danger-tab { color: var(--text-primary); margin-top: auto; }
 .settings-tab.danger-tab:hover { background: rgba(239, 68, 68, 0.1); }
 .settings-tab.danger-tab.active { background: rgba(239, 68, 68, 0.12); color: var(--text-primary); }
@@ -965,7 +965,7 @@ body {
   transition: border-color 0.2s, background 0.2s;
 }
 .settings-input::placeholder { color: var(--text-dim); }
-.settings-input:focus { border-color: var(--account-accent); }
+.settings-input:focus { border-color: var(--input-border-focus); }
 .settings-input:disabled {
   background: var(--hover-bg);
   color: var(--text-dim);
@@ -976,16 +976,16 @@ body {
   margin-top: 16px;
   padding: 10px 20px;
   border-radius: 8px;
-  border: none;
-  background: var(--account-accent);
-  color: #ffffff;
+  border: 1px solid var(--input-border);
+  background: transparent;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s, opacity 0.2s;
   align-self: flex-start;
 }
-.settings-save-btn:hover { background: var(--account-accent-hover); }
+.settings-save-btn:hover { background: var(--hover-bg); }
 .settings-save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Password field with eye toggle */
@@ -1059,9 +1059,9 @@ body {
 }
 .theme-option:hover { background: var(--hover-bg); color: var(--text-primary); }
 .theme-option.active {
-  border-color: var(--account-accent);
-  background: var(--account-accent-soft);
-  color: var(--account-accent);
+  border-color: var(--input-border-focus);
+  background: var(--active-bg);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
