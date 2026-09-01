@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
         print(f"Using {PROVIDER} for AI responses")
     yield
 
-app = FastAPI(title="Musclemap AI", lifespan=lifespan)
+app = FastAPI(title="Musclemap AI", version="1.1.3", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,7 +78,12 @@ Respond with ONLY the title, no quotes, no punctuation at the end.
 User message: {req.message}"""
 
         # record=False so title generation never pollutes conversation history
-        title = ask_model(prompt, record=False, structured=False).strip().strip('"').strip("'")
+        title = ask_model(
+            prompt,
+            record=False,
+            structured=False,
+            use_persona=False,
+        ).strip().strip('"').strip("'")
         if title.startswith("{"):
             # The model returned an error JSON object (e.g. bad API key)
             return {"title": "New Chat"}
