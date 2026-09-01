@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "../supabase";
+import { getAuthRedirectUrl, supabase } from "../supabase";
 
 export default function Auth() {
   const [email, setEmail] = useState("");
@@ -24,7 +24,11 @@ async function handleAuth() {
   }
 
   // SIGN UP MODE
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: getAuthRedirectUrl() },
+  });
 
   if (error) {
     alert(error.message);

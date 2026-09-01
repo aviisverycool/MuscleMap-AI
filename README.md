@@ -26,6 +26,12 @@ configured as one Vercel Services project:
    expose the service-role key through a `REACT_APP_*` variable.
 5. Deploy. The health endpoint will be available at `/api`.
 
+For email verification, set **Supabase > Authentication > URL Configuration >
+Site URL** to the deployed app URL and add that URL under **Redirect URLs**.
+The frontend sends the current app origin as the verification return URL. Set
+`REACT_APP_SITE_URL` to a canonical production URL if verification should
+always return to one domain.
+
 The frontend's existing public Supabase URL and publishable key remain as
 fallbacks. You can override them at build time with
 `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY`.

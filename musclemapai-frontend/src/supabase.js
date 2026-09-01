@@ -8,3 +8,9 @@ const supabaseKey =
   "sb_publishable_P1MFK71oBAPLZw8AguCvUw_6Xi3Es77";
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+export function getAuthRedirectUrl() {
+  const configuredUrl = process.env.REACT_APP_SITE_URL?.trim();
+  const appUrl = configuredUrl || window.location.origin;
+  return `${appUrl.replace(/\/+$/, "")}/`;
+}

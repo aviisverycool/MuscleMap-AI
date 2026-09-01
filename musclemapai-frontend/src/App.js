@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { supabase } from "./supabase";
+import { getAuthRedirectUrl, supabase } from "./supabase";
 import "./App.css";
 import bg from "./background-minimal.png";
 import BodyMap3D from "./components/BodyMap3D";
@@ -185,7 +185,10 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
   async function saveEmail() {
     if (!newEmail.trim()) return;
     setSaving(true);
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
+    const { error } = await supabase.auth.updateUser(
+      { email: newEmail },
+      { emailRedirectTo: getAuthRedirectUrl() }
+    );
     setSaving(false);
     if (error) showFeedback("error", error.message);
     else showFeedback("success", "Confirmation sent to new email address.");
@@ -729,7 +732,11 @@ export default function App() {
             <>
               <button className="auth-primary" onClick={async () => {
                 try {
-                  const { error } = await supabase.auth.signUp({ email: authData.email, password: authData.password });
+                  const { error } = await supabase.auth.signUp({
+                    email: authData.email,
+                    password: authData.password,
+                    options: { emailRedirectTo: getAuthRedirectUrl() },
+                  });
                   if (error) alert(error.message);
                   else alert("Check your email to verify your account.");
                 } catch (err) {
