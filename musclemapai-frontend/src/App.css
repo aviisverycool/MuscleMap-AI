@@ -137,8 +137,8 @@ body {
   box-shadow: none;
   border-radius: 16px;
   border: 1px solid var(--auth-card-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
   gap: 14px;
