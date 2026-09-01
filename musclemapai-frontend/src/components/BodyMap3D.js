@@ -7,6 +7,7 @@ const JOINT_COLOR = new THREE.Color("#7f959f");
 const CORE_COLOR = new THREE.Color("#a2b4bb");
 const HOVER_COLOR = new THREE.Color("#65d6b6");
 const SELECTED_COLOR = new THREE.Color("#ff7b55");
+const FULLY_ZOOMED_OUT_DISTANCE = 17;
 
 function BodyMap3D({ onSelect, selectedPart }) {
   const mountRef = useRef(null);
@@ -25,7 +26,7 @@ function BodyMap3D({ onSelect, selectedPart }) {
     try {
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-      camera.position.set(0, -0.1, 12);
+      camera.position.set(0, -0.1, FULLY_ZOOMED_OUT_DISTANCE);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -40,7 +41,7 @@ function BodyMap3D({ onSelect, selectedPart }) {
       controls.dampingFactor = 0.08;
       controls.enablePan = false;
       controls.minDistance = 8;
-      controls.maxDistance = 17;
+      controls.maxDistance = FULLY_ZOOMED_OUT_DISTANCE;
       controls.minPolarAngle = Math.PI * 0.2;
       controls.maxPolarAngle = Math.PI * 0.78;
       controls.target.set(0, -0.15, 0);
