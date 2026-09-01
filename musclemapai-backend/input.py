@@ -2,16 +2,30 @@ import requests
 import os
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-from supabase_store import load_profile, save_profile, load_history, save_history, load_state, save_state, clear_state
+from supabase_store import (
+    ENABLED as SUPABASE_MEMORY_ENABLED,
+    clear_history,
+    clear_profile,
+    clear_state,
+    load_history,
+    load_profile,
+    load_state,
+    save_history,
+    save_profile,
+    save_state,
+)
 load_dotenv()
 
 # ====== SETUP ======
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+AGNES_URL = "https://apihub.agnes-ai.com/v1/chat/completions"
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+AGNES_API_KEY = os.getenv("AGNES_API_KEY")
 
 # Accept a Groq key placed in the project's former Cerebras-only variable so
 # existing local deployments keep working while they migrate the variable name.
@@ -19,18 +33,51 @@ if not GROQ_API_KEY and CEREBRAS_API_KEY and CEREBRAS_API_KEY.startswith("gsk_")
     GROQ_API_KEY = CEREBRAS_API_KEY
     CEREBRAS_API_KEY = None
 
+PROVIDERS = []
+
 if GROQ_API_KEY:
-    PROVIDER = "Groq"
-    API_URL = GROQ_URL
-    API_KEY = GROQ_API_KEY
-    MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
-    reasoning_setting = os.getenv("GROQ_REASONING_EFFORT", "medium")
-else:
-    PROVIDER = "Cerebras"
-    API_URL = CEREBRAS_URL
-    API_KEY = CEREBRAS_API_KEY
-    MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b").strip() or "gpt-oss-120b"
-    reasoning_setting = os.getenv("CEREBRAS_REASONING_EFFORT", "medium")
+    PROVIDERS.append({
+        "name": "Groq",
+        "url": GROQ_URL,
+        "key": GROQ_API_KEY,
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b",
+        "reasoning_effort": os.getenv("GROQ_REASONING_EFFORT", "medium"),
+    })
+elif CEREBRAS_API_KEY:
+    # Preserve the previous behavior when Cerebras is the only configured
+    # primary provider.
+    PROVIDERS.append({
+        "name": "Cerebras",
+        "url": CEREBRAS_URL,
+        "key": CEREBRAS_API_KEY,
+        "model": os.getenv("CEREBRAS_MODEL", "gpt-oss-120b").strip() or "gpt-oss-120b",
+        "reasoning_effort": os.getenv("CEREBRAS_REASONING_EFFORT", "medium"),
+    })
+
+if AGNES_API_KEY:
+    PROVIDERS.append({
+        "name": "Agnes",
+        "url": AGNES_URL,
+        "key": AGNES_API_KEY,
+        "model": os.getenv("AGNES_MODEL", "agnes-2.5-flash").strip() or "agnes-2.5-flash",
+        "reasoning_effort": "medium",
+    })
+
+if GROQ_API_KEY and CEREBRAS_API_KEY:
+    PROVIDERS.append({
+        "name": "Cerebras",
+        "url": CEREBRAS_URL,
+        "key": CEREBRAS_API_KEY,
+        "model": os.getenv("CEREBRAS_MODEL", "gpt-oss-120b").strip() or "gpt-oss-120b",
+        "reasoning_effort": os.getenv("CEREBRAS_REASONING_EFFORT", "medium"),
+    })
+
+primary_provider = PROVIDERS[0] if PROVIDERS else {}
+PROVIDER = primary_provider.get("name", "None")
+API_URL = primary_provider.get("url")
+API_KEY = primary_provider.get("key")
+MODEL = primary_provider.get("model")
+reasoning_setting = primary_provider.get("reasoning_effort", "medium")
 
 REASONING_EFFORT = reasoning_setting.strip().lower()
 if REASONING_EFFORT not in {"low", "medium", "high"}:
@@ -61,78 +108,222 @@ FITNESS_RESPONSE_SCHEMA = {
 }
 
 # ====== MEMORY FILE ======
-MEMORY_FILE = "memory.json"
+MEMORY_FILE = os.path.join(os.path.dirname(__file__), "memory.json")
 
 # ====== MEMORY (per-session; keyed by conversation id) ======
 chat_history = {}    # session_id -> list of messages
 last_context = {}    # session_id -> pending follow-up question
 last_request = {}    # session_id -> user's original request awaiting an answer
-
-user_profile = {
-    "goals": [],
-    "injuries": [],
-    "preferences": []
-}
+last_state_expiry = {}  # session_id -> optional injury-memory expiry
+user_profiles = {}      # session_id -> conversation-scoped profile
+local_profiles = {}     # used only when durable Supabase memory is not configured
+deleted_sessions = set() # prevents in-flight responses from restoring deleted memory
 
 # ====== LOAD/SAVE MEMORY ======
-KNOWN_PROFILE_KEYS = ("goals", "injuries", "preferences")
+BODY_PARTS = (
+    "achilles", "ankle", "back", "calf", "elbow", "foot", "groin",
+    "hamstring", "hand", "hip", "knee", "neck", "quad", "shoulder",
+    "shin", "wrist",
+)
+INJURY_PATTERN = re.compile(
+    r"\b(pain|painful|injur(?:y|ed)|hurt(?:s|ing)?|sore(?:ness)?|sprain(?:ed)?|"
+    r"strain(?:ed)?|tear|torn|bruise(?:d)?|fracture(?:d)?|broken|dislocat(?:ed|ion))\b",
+    re.IGNORECASE,
+)
+
+# These are privacy-retention windows, not diagnoses or promises of recovery.
+# Unspecified pain and soft-tissue injuries use the upper end of common 6-8
+# week guidance. More serious descriptions get a longer but still finite limit.
+INJURY_RETENTION_DAYS = {
+    "soreness": 7,
+    "bruise": 21,
+    "general": 56,
+    "serious": 90,
+}
+
+
+def _empty_profile():
+    return {"goals": [], "injuries": [], "preferences": []}
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
+def _parse_datetime(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _normalize_profile(profile):
+    if not isinstance(profile, dict):
+        return _empty_profile()
+
+    normalized = {
+        "goals": profile.get("goals") if isinstance(profile.get("goals"), list) else [],
+        "injuries": [],
+        "preferences": profile.get("preferences") if isinstance(profile.get("preferences"), list) else [],
+    }
+    now = _utc_now()
+    for injury in profile.get("injuries", []):
+        # Legacy string entries have no collection date, so keeping them would
+        # make it impossible to honor a finite retention period safely.
+        if not isinstance(injury, dict):
+            continue
+        expires_at = _parse_datetime(injury.get("expires_at"))
+        if expires_at and expires_at > now and isinstance(injury.get("area"), str):
+            normalized["injuries"].append(injury)
+    return normalized
 
 def load_memory():
-    global user_profile
-    profile = load_profile()
-    if profile is None:
-        profile = {}
-        if os.path.exists(MEMORY_FILE):
-            try:
-                with open(MEMORY_FILE, "r") as f:
-                    profile = json.load(f)
-            except Exception:
-                profile = {}
-
-    if not isinstance(profile, dict):
-        profile = {}
-
-    # Only keep known keys and guarantee they are lists, so stale or
-    # corrupted memory files can never crash update_user_profile or leak
-    # junk into the LLM prompt.
-    user_profile = {
-        key: (profile[key] if isinstance(profile.get(key), list) else [])
-        for key in KNOWN_PROFILE_KEYS
-    }
-
-
-def save_memory():
+    global local_profiles
+    user_profiles.clear()
+    local_profiles = {}
+    if SUPABASE_MEMORY_ENABLED or not os.path.exists(MEMORY_FILE):
+        return
     try:
-        save_profile(user_profile)
-    except Exception as e:
-        print(f"Warning: could not save memory to Supabase: {e}")
+        with open(MEMORY_FILE, "r") as f:
+            stored = json.load(f)
+    except Exception:
+        return
+
+    # Do not migrate the former global profile: it cannot be safely tied to a
+    # conversation, and its undated injuries cannot satisfy expiry rules.
+    profiles = stored.get("profiles") if isinstance(stored, dict) else None
+    if isinstance(profiles, dict):
+        local_profiles = {
+            session_id: _normalize_profile(profile)
+            for session_id, profile in profiles.items()
+            if isinstance(session_id, str)
+        }
+
+
+def _write_local_memory():
+    if SUPABASE_MEMORY_ENABLED:
+        return
     try:
         with open(MEMORY_FILE, "w") as f:
-            json.dump(user_profile, f)
+            json.dump({"profiles": local_profiles}, f)
     except Exception as e:
         print(f"Warning: could not save memory: {e}")
 
+
+def _get_profile(session_id):
+    if session_id not in user_profiles:
+        stored = load_profile(session_id)
+        if stored is None:
+            stored = local_profiles.get(session_id, {})
+        normalized = _normalize_profile(stored)
+        user_profiles[session_id] = normalized
+        if isinstance(stored, dict) and stored != normalized:
+            save_memory(session_id)
+    else:
+        normalized = _normalize_profile(user_profiles[session_id])
+        if normalized != user_profiles[session_id]:
+            user_profiles[session_id] = normalized
+            save_memory(session_id)
+    return user_profiles[session_id]
+
+
+def save_memory(session_id="default"):
+    profile = _get_profile(session_id)
+    try:
+        save_profile(session_id, profile)
+    except Exception as e:
+        print(f"Warning: could not save memory to Supabase: {e}")
+    if not SUPABASE_MEMORY_ENABLED:
+        local_profiles[session_id] = profile
+        _write_local_memory()
+
 # ====== PROFILE UPDATE ======
-def update_user_profile(text):
+def _injury_kind(text):
+    lowered = text.lower()
+    if re.search(r"\b(fracture|fractured|broken|tear|torn|dislocated|dislocation)\b", lowered):
+        return "serious"
+    if re.search(r"\b(bruise|bruised)\b", lowered):
+        return "bruise"
+    if re.search(r"\b(sore|soreness)\b", lowered):
+        return "soreness"
+    return "general"
+
+
+def _injury_areas(text):
+    lowered = text.lower()
+    return [area for area in BODY_PARTS if re.search(rf"\b{re.escape(area)}s?\b", lowered)]
+
+
+def _injury_expiry(text, now=None):
+    if not INJURY_PATTERN.search(text):
+        return None
+    now = now or _utc_now()
+    days = INJURY_RETENTION_DAYS[_injury_kind(text)]
+    return (now + timedelta(days=days)).isoformat()
+
+
+def _injury_is_negated(text):
+    injury_words = r"pain|painful|injury|injured|hurt|hurts|sore|soreness|sprain|strain"
+    return bool(
+        re.search(r"\b(?:no longer|never)\b", text)
+        or re.search(
+            rf"\b(?:no|without)\s+(?:more\s+)?(?:\w+\s+){{0,3}}(?:{injury_words})\b",
+            text,
+        )
+        or re.search(
+            r"\b(?:do not|don't|does not|doesn't|did not|didn't)\s+"
+            r"(?:currently\s+)?(?:have|feel|hurt)\b",
+            text,
+        )
+        or re.search(
+            rf"\b(?:{'|'.join(BODY_PARTS)})s?\b.{{0,24}}\b(?:is not|isn't|does not|doesn't)\s+"
+            rf"(?:{injury_words})\b",
+            text,
+        )
+    )
+
+
+def update_user_profile(text, session_id="default"):
+    profile = _get_profile(session_id)
     t = text.lower()
     changed = False
 
-    negated = bool(re.search(r"\b(?:don'?t|do not|not|never|hate|avoid|no)\b", t))
+    preference_negated = bool(re.search(r"\b(?:don'?t|do not|never|hate|avoid)\b", t))
+    injury_negated = _injury_is_negated(t)
 
-    if re.search(r"\b(?:run|running|jog|jogging)\b", t) and not negated and "running" not in user_profile["goals"]:
-        user_profile["goals"].append("running")
+    if re.search(r"\b(?:run|running|jog|jogging)\b", t) and not preference_negated and "running" not in profile["goals"]:
+        profile["goals"].append("running")
         changed = True
 
-    if re.search(r"\bknee pain\b", t) and not negated and "knee" not in user_profile["injuries"]:
-        user_profile["injuries"].append("knee")
-        changed = True
+    expiry = _injury_expiry(text)
+    areas = _injury_areas(text)
+    if expiry and areas and injury_negated:
+        remembered_areas = {item.get("area") for item in profile["injuries"]}
+        profile["injuries"] = [item for item in profile["injuries"] if item.get("area") not in areas]
+        changed = changed or bool(remembered_areas.intersection(areas))
+    elif expiry and areas:
+        kind = _injury_kind(text)
+        now = _utc_now().isoformat()
+        for area in areas:
+            profile["injuries"] = [item for item in profile["injuries"] if item.get("area") != area]
+            profile["injuries"].append({
+                "area": area,
+                "kind": kind,
+                "reported_at": now,
+                "expires_at": expiry,
+            })
+            changed = True
 
-    if re.search(r"\b5[- ]?10\b", t) and not negated and "short workouts" not in user_profile["preferences"]:
-        user_profile["preferences"].append("short workouts")
+    if re.search(r"\b5[- ]?10\b", t) and not preference_negated and "short workouts" not in profile["preferences"]:
+        profile["preferences"].append("short workouts")
         changed = True
 
     if changed:
-        save_memory()
+        save_memory(session_id)
+    return expiry if areas else None
 
 # ====== CASUAL ======
 GREETINGS = {"hi", "hello", "hey", "howdy", "sup", "yo", "hiya"}
@@ -199,8 +390,60 @@ def validate_json_structure(data):
 def _get_history(session_id):
     if session_id not in chat_history:
         stored = load_history(session_id)
-        chat_history[session_id] = stored if stored is not None else []
+        history = stored if stored is not None else []
+        chat_history[session_id], changed = _prune_history(history)
+        if changed:
+            save_history(session_id, chat_history[session_id])
     return chat_history[session_id]
+
+
+def _recorded_user_request(content):
+    if not isinstance(content, str):
+        return ""
+    marker = "User request:"
+    if marker not in content:
+        return content
+    request = content.rsplit(marker, 1)[1]
+    return request.split("\n\nUse CommonMark", 1)[0].strip()
+
+
+def _prune_history(history):
+    if not isinstance(history, list):
+        return [], True
+
+    now = _utc_now()
+    kept = []
+    changed = False
+    drop_assistant = False
+    for entry in history:
+        if not isinstance(entry, dict):
+            changed = True
+            continue
+
+        role = entry.get("role")
+        has_expiry = "expires_at" in entry
+        expires_at = _parse_datetime(entry.get("expires_at"))
+        expired = has_expiry and (expires_at is None or expires_at <= now)
+
+        # Old entries did not include timestamps. Remove only legacy user/
+        # assistant pairs that actually discussed an injury; their age cannot
+        # be established safely.
+        if role == "user" and "expires_at" not in entry:
+            request = _recorded_user_request(entry.get("content"))
+            expired = bool(_injury_expiry(request, now=now) and _injury_areas(request))
+
+        if role == "user":
+            drop_assistant = expired
+        elif role == "assistant" and drop_assistant:
+            expired = True
+            drop_assistant = False
+
+        if expired:
+            changed = True
+            continue
+        kept.append(entry)
+
+    return kept, changed
 
 
 def _load_state(session_id):
@@ -208,15 +451,48 @@ def _load_state(session_id):
         return
     state = load_state(session_id)
     if state:
+        request = state["request"]
+        expires_at = None
+        if isinstance(request, str) and request.startswith("{"):
+            try:
+                payload = json.loads(request)
+                if isinstance(payload, dict) and isinstance(payload.get("text"), str):
+                    request = payload["text"]
+                    expires_at = payload.get("expires_at")
+            except json.JSONDecodeError:
+                pass
+
+        parsed_expiry = _parse_datetime(expires_at)
+        legacy_injury_state = (
+            expires_at is None
+            and isinstance(request, str)
+            and _injury_expiry(request)
+            and _injury_areas(request)
+        )
+        if legacy_injury_state or (expires_at is not None and (not parsed_expiry or parsed_expiry <= _utc_now())):
+            clear_state(session_id)
+            return
+
         last_context[session_id] = state["context"]
-        last_request[session_id] = state["request"]
+        last_request[session_id] = request
+        if expires_at:
+            last_state_expiry[session_id] = expires_at
 
 
 def _set_state(session_id, question, request):
+    if session_id in deleted_sessions:
+        return
     last_context[session_id] = question
     last_request[session_id] = request
+    expires_at = _injury_expiry(request) if _injury_areas(request) else None
+    if expires_at:
+        last_state_expiry[session_id] = expires_at
+        stored_request = json.dumps({"text": request, "expires_at": expires_at})
+    else:
+        last_state_expiry.pop(session_id, None)
+        stored_request = request
     try:
-        save_state(session_id, question, request)
+        save_state(session_id, question, stored_request)
     except Exception as e:
         print(f"Warning: could not save state to Supabase: {e}")
 
@@ -224,14 +500,48 @@ def _set_state(session_id, question, request):
 def _clear_state(session_id):
     last_context.pop(session_id, None)
     last_request.pop(session_id, None)
+    last_state_expiry.pop(session_id, None)
     try:
         clear_state(session_id)
     except Exception as e:
         print(f"Warning: could not clear state in Supabase: {e}")
 
 
+def delete_session_memory(session_id):
+    """Delete every backend memory layer associated with one conversation."""
+    deleted_sessions.add(session_id)
+    failures = []
+    for name, delete_func in (
+        ("profile", clear_profile),
+        ("history", clear_history),
+        ("state", clear_state),
+    ):
+        if not delete_func(session_id):
+            failures.append(name)
+
+    user_profiles.pop(session_id, None)
+    chat_history.pop(session_id, None)
+    last_context.pop(session_id, None)
+    last_request.pop(session_id, None)
+    last_state_expiry.pop(session_id, None)
+    if session_id in local_profiles:
+        local_profiles.pop(session_id, None)
+        _write_local_memory()
+
+    if failures:
+        raise RuntimeError(f"Could not delete backend {', '.join(failures)} memory")
+
+
+def purge_legacy_unscoped_memory():
+    """Remove the former global profile, which cannot be assigned safely."""
+    delete_session_memory("default")
+
+
 def generate_response(text, session_id="default", body_part=None):
-    update_user_profile(text)
+    # A new explicit request reactivates an ID only when a frontend deletion
+    # failed and the still-visible conversation is used again.
+    deleted_sessions.discard(session_id)
+    injury_expires_at = update_user_profile(text, session_id)
 
     casual = get_casual_reply(text)
     if casual:
@@ -244,7 +554,12 @@ def generate_response(text, session_id="default", body_part=None):
     pending = last_context.get(session_id)
     if pending:
         combined = f"{last_request.get(session_id)} for {text}"
-        raw = safe_model_call(build_prompt(combined, body_part), session_id)
+        combined_expiry = last_state_expiry.get(session_id) or injury_expires_at
+        raw = safe_model_call(
+            build_prompt(combined, body_part, session_id),
+            session_id,
+            history_expires_at=combined_expiry,
+        )
         _clear_state(session_id)
         return format_response(raw)
 
@@ -253,7 +568,11 @@ def generate_response(text, session_id="default", body_part=None):
         _set_state(session_id, question, text)
         return question
 
-    raw = safe_model_call(build_prompt(text, body_part), session_id)
+    raw = safe_model_call(
+        build_prompt(text, body_part, session_id),
+        session_id,
+        history_expires_at=injury_expires_at,
+    )
 
     try:
         data = json.loads(raw)
@@ -266,8 +585,8 @@ def generate_response(text, session_id="default", body_part=None):
     return format_response(raw)
 
 # ====== PROMPT BUILDER ======
-def build_prompt(user_text, body_part=None):
-    profile_block = f"User profile: {json.dumps(user_profile)}"
+def build_prompt(user_text, body_part=None, session_id="default"):
+    profile_block = f"Conversation profile: {json.dumps(_get_profile(session_id))}"
     selected_body_part = body_part.strip()[:80] if isinstance(body_part, str) else ""
     body_context_block = (
         f"Selected body area from the body map: {json.dumps(selected_body_part)}"
@@ -319,13 +638,18 @@ ONLY OUTPUT JSON.
 """
 
 # ====== SAFE MODEL CALL (RETRY) ======
-def safe_model_call(prompt, session_id="default", retries=3):
+def safe_model_call(prompt, session_id="default", retries=3, history_expires_at=None):
     for attempt in range(retries):
-        # Only record the final attempt so failed retries don't pollute history
-        raw = ask_model(prompt, session_id, record=(attempt == retries - 1))
+        raw = ask_model(
+            prompt,
+            session_id,
+            record=False,
+            history_expires_at=history_expires_at,
+        )
         try:
             data = json.loads(raw)
             if validate_json_structure(data):
+                _record_exchange(prompt, raw, session_id, history_expires_at)
                 return raw
         except:
             pass
@@ -334,57 +658,108 @@ def safe_model_call(prompt, session_id="default", retries=3):
 
     return '{"intro":"Error formatting response","stretches":[],"advice":"Please try again.","question":""}'
 
+
+def _record_exchange(prompt, response_text, session_id, history_expires_at=None):
+    if session_id in deleted_sessions:
+        return
+    history = _get_history(session_id)
+    user_entry = {"role": "user", "content": prompt}
+    assistant_entry = {"role": "assistant", "content": response_text}
+    if history_expires_at:
+        user_entry["expires_at"] = history_expires_at
+        assistant_entry["expires_at"] = history_expires_at
+    history.append(user_entry)
+    history.append(assistant_entry)
+    # Bound the in-memory history to avoid unbounded growth.
+    if len(history) > 30:
+        del history[: len(history) - 30]
+    try:
+        save_history(session_id, history)
+    except Exception as e:
+        print(f"Warning: could not save history to Supabase: {e}")
+
 # ====== API CALL =====
-def ask_model(prompt, session_id="default", record=True, structured=True):
-    if not API_KEY:
-        print("ERROR: GROQ_API_KEY or CEREBRAS_API_KEY not set in .env")
+def ask_model(
+    prompt,
+    session_id="default",
+    record=True,
+    structured=True,
+    history_expires_at=None,
+):
+    if not PROVIDERS:
+        print("ERROR: no AI provider key is set in .env")
         return json.dumps({
             "intro": "API Error: no AI provider key is configured",
             "stretches": [],
-            "advice": "Add GROQ_API_KEY to musclemapai-backend/.env",
+            "advice": "Add GROQ_API_KEY or AGNES_API_KEY to musclemapai-backend/.env",
             "question": "",
         })
 
     history = _get_history(session_id)
-    messages = history[-10:] + [{"role": "user", "content": prompt}]
+    messages = [
+        {"role": item["role"], "content": item["content"]}
+        for item in history[-10:]
+        if item.get("role") in {"user", "assistant"} and isinstance(item.get("content"), str)
+    ] + [{"role": "user", "content": prompt}]
 
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
+    fallback_statuses = {401, 403, 408, 429, 500, 502, 503, 504}
+    last_error = "All configured AI providers failed"
+    response_text = None
 
-    data = {
-        "model": MODEL,
-        "messages": messages,
-        "temperature": 0,
-        "max_tokens": 4000
-    }
-
-    if MODEL.endswith("gpt-oss-120b"):
-        data["reasoning_effort"] = REASONING_EFFORT
-
-    if structured:
-        data["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "fitness_response",
-                "strict": True,
-                "schema": FITNESS_RESPONSE_SCHEMA,
-            },
+    for provider in PROVIDERS:
+        headers = {
+            "Authorization": f"Bearer {provider['key']}",
+            "Content-Type": "application/json",
+        }
+        data = {
+            "model": provider["model"],
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 4000,
         }
 
-    try:
-        response = requests.post(API_URL, headers=headers, json=data, timeout=60)
-    except requests.RequestException as e:
-        print(f"API request failed: {e}")
-        return json.dumps({
-            "intro": f"API Error: could not reach {PROVIDER}",
-            "stretches": [],
-            "advice": "Check your network connection",
-            "question": "",
-        })
+        if provider["model"].endswith("gpt-oss-120b"):
+            effort = provider["reasoning_effort"].strip().lower()
+            data["reasoning_effort"] = effort if effort in {"low", "medium", "high"} else "medium"
 
-    if response.status_code != 200:
+        if structured:
+            data["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "fitness_response",
+                    "strict": True,
+                    "schema": FITNESS_RESPONSE_SCHEMA,
+                },
+            }
+
+        try:
+            response = requests.post(provider["url"], headers=headers, json=data, timeout=60)
+        except requests.RequestException as e:
+            last_error = f"could not reach {provider['name']}: {e}"
+            print(f"{provider['name']} API request failed: {e}")
+            continue
+
+        # Agnes is OpenAI-compatible, but schema support can vary by model.
+        # If strict schema mode is rejected, retry once and rely on the prompt
+        # plus validate_json_structure instead.
+        if provider["name"] == "Agnes" and structured and response.status_code in {400, 422}:
+            data.pop("response_format", None)
+            try:
+                response = requests.post(provider["url"], headers=headers, json=data, timeout=60)
+            except requests.RequestException as e:
+                last_error = f"could not reach Agnes: {e}"
+                print(f"Agnes API request failed: {e}")
+                continue
+
+        if response.status_code == 200:
+            try:
+                response_text = response.json()["choices"][0]["message"]["content"].strip()
+                break
+            except (KeyError, TypeError, ValueError) as e:
+                last_error = f"{provider['name']} returned an invalid response: {e}"
+                print(last_error)
+                continue
+
         detail = "Unknown error"
         try:
             error_data = response.json()
@@ -394,26 +769,22 @@ def ask_model(prompt, session_id="default", record=True, structured=True):
             detail = detail or response.text
         except Exception:
             detail = response.text
-        print(f"{PROVIDER} API Error {response.status_code}: {detail}")
+
+        last_error = f"{provider['name']} API Error {response.status_code}: {detail}"
+        print(last_error)
+        if response.status_code not in fallback_statuses:
+            break
+
+    if response_text is None:
         return json.dumps({
-            "intro": f"API Error ({response.status_code}): {detail}",
+            "intro": "API Error: all configured AI providers failed",
             "stretches": [],
-            "advice": "Check connection",
+            "advice": last_error,
             "question": "",
         })
 
-    response_text = response.json()["choices"][0]["message"]["content"].strip()
-
     if record:
-        history.append({"role": "user", "content": prompt})
-        history.append({"role": "assistant", "content": response_text})
-        # Bound the in-memory history to avoid unbounded growth
-        if len(history) > 30:
-            del history[: len(history) - 30]
-        try:
-            save_history(session_id, history)
-        except Exception as e:
-            print(f"Warning: could not save history to Supabase: {e}")
+        _record_exchange(prompt, response_text, session_id, history_expires_at)
 
     return response_text
 
@@ -460,6 +831,7 @@ def main():
         return
 
     load_memory()
+    purge_legacy_unscoped_memory()
 
     while True:
         user_input = input("> ").strip()
@@ -468,9 +840,9 @@ def main():
             break
 
         if user_input:
-            response = generate_response(user_input)
+            response = generate_response(user_input, session_id="cli")
             print("\n" + response + "\n")
-            save_memory()
+            save_memory("cli")
 
 if __name__ == "__main__":
     main()

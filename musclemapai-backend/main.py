@@ -1,16 +1,29 @@
 import os
+from uuid import UUID
 from fastapi import FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from models import ChatRequest, ChatResponse, TitleRequest, TitleResponse
-from input import generate_response, load_memory, API_KEY, PROVIDER, ask_model
+from input import (
+    API_KEY,
+    PROVIDER,
+    ask_model,
+    delete_session_memory,
+    generate_response,
+    load_memory,
+    purge_legacy_unscoped_memory,
+)
 import uvicorn
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_memory()
+    try:
+        purge_legacy_unscoped_memory()
+    except Exception as e:
+        print(f"Warning: could not purge legacy unscoped memory: {e}")
     if not API_KEY:
-        print("ERROR: GROQ_API_KEY or CEREBRAS_API_KEY not found in .env!")
+        print("ERROR: no AI provider key found in .env!")
     else:
         print(f"Using {PROVIDER} for AI responses")
     yield
@@ -26,15 +39,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _conversation_id(value):
+    try:
+        return str(UUID(str(value)))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation id")
+
 @app.get("/api")
 def root():
     return {"status": "Musclemap AI is running"}
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    session_id = _conversation_id(req.session_id)
     try:
-        response = generate_response(req.message, req.session_id, req.body_part)
+        response = generate_response(req.message, session_id, req.body_part)
         return ChatResponse(message=response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/chat/{session_id}")
+def delete_chat_memory(session_id: str):
+    session_id = _conversation_id(session_id)
+    try:
+        delete_session_memory(session_id)
+        return {"deleted": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

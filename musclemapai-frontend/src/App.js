@@ -441,6 +441,7 @@ export default function App() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const savedIdsRef = useRef(new Set()); // conversation ids that exist in Supabase
+  const deletedConversationIdsRef = useRef(new Set());
 
   // Apply theme to root + persist
   useEffect(() => {
@@ -509,7 +510,7 @@ export default function App() {
   }, [user]);
 
   const saveConversation = useCallback(async (convId, messages, title) => {
-    if (!user) return;
+    if (!user || deletedConversationIdsRef.current.has(convId)) return;
 
     const { data, error: lookupError } = await supabase
       .from("conversations")
@@ -543,12 +544,31 @@ export default function App() {
   // Delete conversation
   async function deleteConversation(e, id) {
     e.stopPropagation();
+    deletedConversationIdsRef.current.add(id);
+
+    try {
+      const backendResponse = await fetch(`${API_BASE_URL}/chat/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!backendResponse.ok) {
+        throw new Error(`Backend memory deletion failed (${backendResponse.status})`);
+      }
+    } catch (error) {
+      deletedConversationIdsRef.current.delete(id);
+      console.error("Error deleting backend conversation memory:", error);
+      return;
+    }
+
     const { error } = await supabase
       .from("conversations")
       .delete()
       .eq("id", id)
       .eq("user_id", user.id);
-    if (error) { console.error("Error deleting:", error); return; }
+    if (error) {
+      deletedConversationIdsRef.current.delete(id);
+      console.error("Error deleting conversation:", error);
+      return;
+    }
     savedIdsRef.current.delete(id);
     setConversationData((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setConversationOrder((prev) => prev.filter((cid) => cid !== id));
@@ -658,6 +678,10 @@ export default function App() {
       });
       const data = await res.json();
 
+      // A response that finishes after its conversation was deleted must not
+      // recreate either the visible chat or its hidden backend memory.
+      if (deletedConversationIdsRef.current.has(convId)) return;
+
       const nextMessages = [...updatedMessages, { role: "assistant", text: data.message }];
       setTypingTarget({ conversationId: convId, messageIndex: updatedMessages.length });
 
@@ -674,6 +698,7 @@ export default function App() {
         saveConversation(convId, nextMessages, conversationData[convId]?.title ?? "New Chat");
       }
     } catch (err) {
+      if (deletedConversationIdsRef.current.has(convId)) return;
       console.error("Frontend → Backend error:", err);
       const errorMessages = [
         ...updatedMessages,

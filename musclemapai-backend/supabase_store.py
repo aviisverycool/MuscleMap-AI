@@ -57,31 +57,42 @@ def _upsert(table, payload):
 
 
 def _delete(table, column, value):
+    if not ENABLED:
+        return True
     try:
-        requests.delete(
+        r = requests.delete(
             f"{SUPABASE_URL}/rest/v1/{table}",
             params={column: f"eq.{value}"},
             headers=_headers(),
             timeout=10,
         )
+        if r.status_code not in (200, 204):
+            print(f"Supabase delete error {r.status_code}: {r.text[:200]}")
+            return False
+        return True
     except Exception as e:
         print(f"Supabase delete failed: {e}")
+        return False
 
 
 # ====== USER PROFILE ======
-def load_profile():
+def load_profile(session_id):
     if not ENABLED:
         return None
-    row = _fetch(PROFILE_TABLE, "id", "default")
+    row = _fetch(PROFILE_TABLE, "id", session_id)
     if not row:
         return {}
     return row.get("data") if isinstance(row.get("data"), dict) else {}
 
 
-def save_profile(profile):
+def save_profile(session_id, profile):
     if not ENABLED:
         return
-    _upsert(PROFILE_TABLE, {"id": "default", "data": profile})
+    _upsert(PROFILE_TABLE, {"id": session_id, "data": profile})
+
+
+def clear_profile(session_id):
+    return _delete(PROFILE_TABLE, "id", session_id)
 
 
 # ====== CHAT HISTORY ======
@@ -101,6 +112,10 @@ def save_history(session_id, messages):
     _upsert(HISTORY_TABLE, {"session_id": session_id, "messages": messages})
 
 
+def clear_history(session_id):
+    return _delete(HISTORY_TABLE, "session_id", session_id)
+
+
 # ====== PENDING STATE (follow-up question) ======
 def load_state(session_id):
     if not ENABLED:
@@ -118,6 +133,4 @@ def save_state(session_id, context, request):
 
 
 def clear_state(session_id):
-    if not ENABLED:
-        return
-    _delete(STATE_TABLE, "session_id", session_id)
+    return _delete(STATE_TABLE, "session_id", session_id)

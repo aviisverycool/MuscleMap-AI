@@ -24,6 +24,10 @@ configured as one Vercel Services project:
    `SUPABASE_SERVICE_ROLE_KEY`, then apply
    `musclemapai-backend/supabase_schema.sql` to that Supabase project. Never
    expose the service-role key through a `REACT_APP_*` variable.
+   Backend memory is scoped to each conversation. Deleting a conversation
+   removes its profile, hidden model history, and pending follow-up state.
+   Injury details expire automatically based on a finite recovery-oriented
+   retention window; expiry is a privacy rule, not a medical determination.
 5. Deploy. The health endpoint will be available at `/api`.
 
 For email verification, set **Supabase > Authentication > URL Configuration >
