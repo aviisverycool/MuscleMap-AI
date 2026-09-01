@@ -314,7 +314,7 @@ BEHAVIOR RULES:
 
 User request: {user_text}
 
-Use Markdown formatting for readability when helpful. You may include bullet lists and markdown tables inside JSON string values.
+Use CommonMark and GitHub Flavored Markdown inside JSON string values whenever it makes the answer clearer. You may use headings, bold, italics, links, blockquotes, horizontal rules, inline code, fenced code blocks, ordered or unordered lists, nested lists, task lists, and markdown tables. Choose the format that best fits the user's request; do not force every response into the same format.
 ONLY OUTPUT JSON.
 """
 

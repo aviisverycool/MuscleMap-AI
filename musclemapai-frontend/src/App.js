@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { supabase } from "./supabase";
 import "./App.css";
 import bg from "./background-minimal.png";
@@ -73,149 +75,28 @@ const MoonIcon = () => (
   </svg>
 );
 
-function parseMarkdownInline(text, keyPrefix) {
-  const parts = [];
-  let remaining = text;
-  let keyIndex = 0;
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/;
-
-  while (remaining.length) {
-    const match = remaining.match(regex);
-    if (!match) {
-      parts.push(remaining);
-      break;
-    }
-
-    const matchIndex = match.index;
-    if (matchIndex > 0) {
-      parts.push(remaining.slice(0, matchIndex));
-    }
-
-    const token = match[0];
-    const content = token.slice(token.startsWith('**') ? 2 : 1, -1);
-
-    if (token.startsWith('**')) {
-      parts.push(
-        <strong key={`${keyPrefix}-${keyIndex++}`}>{content}</strong>
-      );
-    } else if (token.startsWith('*')) {
-      parts.push(
-        <em key={`${keyPrefix}-${keyIndex++}`}>{content}</em>
-      );
-    } else {
-      parts.push(
-        <code key={`${keyPrefix}-${keyIndex++}`}>{content}</code>
-      );
-    }
-
-    remaining = remaining.slice(matchIndex + token.length);
-  }
-
-  return parts;
-}
-
 function renderMarkdown(text) {
   if (!text) return null;
 
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const blocks = [];
-  let paragraphLines = [];
-  let blockIndex = 0;
-
-  const flushParagraph = () => {
-    if (!paragraphLines.length) return;
-    blocks.push(
-      <p key={`p-${blockIndex++}`}>{parseMarkdownInline(paragraphLines.join(' '), `p-${blockIndex}`)}</p>
-    );
-    paragraphLines = [];
-  };
-
-  const parseTableRow = (rowText) => rowText.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === '') {
-      flushParagraph();
-      continue;
-    }
-
-    const listMatch = trimmed.match(/^((?:\*|-|\+)|\d+\.)\s+(.*)$/);
-    const nextLine = lines[i + 1]?.trim();
-    const tableHeaderMatch = trimmed.match(/^\|(.+)\|$/);
-    const tableDividerMatch = nextLine?.match(/^\|[\s:-|]+\|$/);
-
-    if (listMatch) {
-      flushParagraph();
-      const listItems = [];
-      const isOrdered = /^\d+\./.test(listMatch[1]);
-
-      while (i < lines.length) {
-        const itemLine = lines[i].trim();
-        const itemMatch = itemLine.match(/^((?:\*|-|\+)|\d+\.)\s+(.*)$/);
-        if (!itemMatch) break;
-        listItems.push(
-          <li key={`li-${blockIndex}-${listItems.length}`}>
-            {parseMarkdownInline(itemMatch[2], `li-${blockIndex}-${listItems.length}`)}
-          </li>
-        );
-        i += 1;
-      }
-
-      blocks.push(
-        isOrdered ? (
-          <ol key={`ol-${blockIndex++}`}>{listItems}</ol>
-        ) : (
-          <ul key={`ul-${blockIndex++}`}>{listItems}</ul>
-        )
-      );
-      i -= 1;
-      continue;
-    }
-
-    if (tableHeaderMatch && tableDividerMatch) {
-      flushParagraph();
-      const headers = parseTableRow(trimmed);
-      i += 2;
-      const rows = [];
-
-      while (i < lines.length && lines[i].trim().startsWith('|')) {
-        const cells = parseTableRow(lines[i]);
-        rows.push(cells);
-        i += 1;
-      }
-
-      const tableIndex = blockIndex;
-      blocks.push(
-        <table key={`table-${blockIndex++}`}>
-          <thead>
-            <tr>
-              {headers.map((cell, idx) => (
-                <th key={`th-${tableIndex}-${idx}`}>{cell}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={`tr-${tableIndex}-${rowIndex}`}>
-                {row.map((cell, cellIndex) => (
-                  <td key={`td-${tableIndex}-${rowIndex}-${cellIndex}`}>{cell}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-      i -= 1;
-      continue;
-    }
-
-    paragraphLines.push(trimmed);
-  }
-
-  flushParagraph();
-  return <>{blocks}</>;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        table({ children }) {
+          return (
+            <div className="markdown-table-wrapper">
+              <table>{children}</table>
+            </div>
+          );
+        },
+        a({ href, children }) {
+          return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 function TypewriterText({ text, animate, onComplete, onProgress }) {
