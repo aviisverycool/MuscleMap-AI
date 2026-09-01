@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
         print(f"Using {PROVIDER} for AI responses")
     yield
 
-app = FastAPI(title="Musclemap AI", version="1.1.3", lifespan=lifespan)
+app = FastAPI(title="Musclemap AI", version="1.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
