@@ -140,6 +140,32 @@ function TypewriterText({ text, animate, onComplete, onProgress }) {
   return renderMarkdown(text.slice(0, visibleLength));
 }
 
+const SCOPE_REDIRECTS = [
+  "I'm focused on fitness, movement, recovery, nutrition, and general wellness. Ask me about a workout, body area, injury-safe exercise, or health goal.",
+  "I'm focused on health, fitness, nutrition, recovery, and wellbeing. Ask me a health or fitness question.",
+];
+
+function cleanAssistantText(text, previousMessage) {
+  if (typeof text !== "string") return "";
+
+  let cleaned = text;
+  for (const redirect of SCOPE_REDIRECTS) {
+    cleaned = cleaned.replace(redirect, "").trim();
+  }
+
+  if (cleaned) return cleaned;
+
+  const previousText = previousMessage?.role === "user"
+    ? previousMessage.text.toLowerCase().replace(/[^\w\s]/g, "").trim()
+    : "";
+  if (["what is my name", "whats my name", "do you know my name"].includes(previousText)) {
+    return "I don't know your name unless you tell me — and I won't guess or make one up.";
+  }
+
+  // Keep a genuine standalone redirect for other unrelated requests.
+  return text;
+}
+
 const EyeIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -878,7 +904,7 @@ export default function App() {
                   <div className="msg-bubble">
                     {m.role === "assistant" ? (
                       <TypewriterText
-                        text={m.text}
+                        text={cleanAssistantText(m.text, currentMessages[i - 1])}
                         animate={
                           typingTarget?.conversationId === currentConversationId &&
                           typingTarget?.messageIndex === i
