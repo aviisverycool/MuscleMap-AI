@@ -17,7 +17,9 @@ configured as one Vercel Services project:
 3. Add `GROQ_API_KEY` in **Project Settings > Environment Variables** for
    Production, Preview, and Development as appropriate.
    The backend uses Groq's free tier and defaults to `openai/gpt-oss-120b`.
-   You can override it with `GROQ_MODEL` and tune reasoning with
+   It automatically falls back to `openai/gpt-oss-20b` when the primary model
+   is unavailable. You can override these with `GROQ_MODEL` and
+   `GROQ_FALLBACK_MODEL`, and tune reasoning with
    `GROQ_REASONING_EFFORT` (`low`, `medium`, or `high`). If no Groq key is
    present, the backend can still use `CEREBRAS_API_KEY` as a paid fallback.
 4. For durable backend memory, also add `SUPABASE_URL` and

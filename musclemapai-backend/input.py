@@ -2,6 +2,7 @@ import requests
 import os
 import json
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from supabase_store import (
@@ -36,13 +37,26 @@ if not GROQ_API_KEY and CEREBRAS_API_KEY and CEREBRAS_API_KEY.startswith("gsk_")
 PROVIDERS = []
 
 if GROQ_API_KEY:
+    groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
+    groq_fallback_model = (
+        os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b").strip()
+        or "openai/gpt-oss-20b"
+    )
     PROVIDERS.append({
         "name": "Groq",
         "url": GROQ_URL,
         "key": GROQ_API_KEY,
-        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b",
+        "model": groq_model,
         "reasoning_effort": os.getenv("GROQ_REASONING_EFFORT", "low"),
     })
+    if groq_fallback_model != groq_model:
+        PROVIDERS.append({
+            "name": "Groq fallback",
+            "url": GROQ_URL,
+            "key": GROQ_API_KEY,
+            "model": groq_fallback_model,
+            "reasoning_effort": os.getenv("GROQ_REASONING_EFFORT", "low"),
+        })
 elif CEREBRAS_API_KEY:
     # Preserve the previous behavior when Cerebras is the only configured
     # primary provider.
@@ -913,8 +927,15 @@ def safe_model_call(prompt, session_id="default", retries=2, history_expires_at=
             data = normalize_response_data(data, infer_legacy_scope=True)
             if validate_json_structure(data):
                 raw = json.dumps(data)
-                if not _as_str(data.get("intro")).startswith(("API Error", "The AI service")):
+                is_provider_error = _as_str(data.get("intro")).startswith(
+                    ("API Error", "The AI service")
+                )
+                if not is_provider_error:
                     _record_exchange(prompt, raw, session_id, history_expires_at)
+                    return raw
+                if attempt < retries - 1:
+                    time.sleep(0.25)
+                    continue
                 return raw
         except:
             pass
@@ -996,7 +1017,11 @@ def ask_model(
     )
     max_tokens = max(1, min(int(max_tokens), MAX_OUTPUT_TOKENS))
 
-    fallback_statuses = {401, 403, 408, 413, 429, 500, 502, 503, 504}
+    # Provider/model failures should not prevent a later configured provider
+    # or Groq's smaller fallback model from handling the request.
+    fallback_statuses = {
+        400, 401, 403, 404, 408, 413, 422, 424, 429, 498, 500, 502, 503, 504
+    }
     last_error = "All configured AI providers failed"
     response_text = None
 
@@ -1066,6 +1091,10 @@ def ask_model(
         if response.status_code == 200:
             try:
                 response_text = response.json()["choices"][0]["message"]["content"].strip()
+                if not response_text:
+                    last_error = f"{provider['name']} returned an empty response"
+                    print(last_error)
+                    continue
                 break
             except (KeyError, TypeError, ValueError) as e:
                 last_error = f"{provider['name']} returned an invalid response: {e}"
@@ -1088,6 +1117,7 @@ def ask_model(
             break
 
     if response_text is None:
+        print(f"AI provider chain exhausted: {last_error}")
         return json.dumps({
             "in_scope": True,
             "intro": "The AI service is temporarily unavailable.",
