@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
-ENABLED = bool(SUPABASE_URL and SUPABASE_KEY)
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SERVICE_ROLE_ENABLED = bool(SUPABASE_URL and SUPABASE_KEY)
+ENABLED = SERVICE_ROLE_ENABLED
 
 PROFILE_TABLE = "backend_profile"
 HISTORY_TABLE = "backend_history"
@@ -73,6 +74,86 @@ def _delete(table, column, value):
     except Exception as e:
         print(f"Supabase delete failed: {e}")
         return False
+
+
+def _delete_filter(table, column, expression):
+    if not ENABLED:
+        return False
+    try:
+        response = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            params={column: expression},
+            headers={**_headers(), "Prefer": "return=minimal"},
+            timeout=10,
+        )
+        if response.status_code not in (200, 204):
+            print(f"Supabase delete error {response.status_code}: {response.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Supabase delete failed: {e}")
+        return False
+
+
+def consume_rate_limit(key, limit, window_seconds):
+    if not SERVICE_ROLE_ENABLED:
+        raise RuntimeError("Shared rate limiting is not configured")
+    try:
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/rpc/consume_backend_rate_limit",
+            headers=_headers(),
+            json={
+                "p_key": key,
+                "p_limit": limit,
+                "p_window_seconds": window_seconds,
+            },
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"Rate limiter returned status {response.status_code}")
+        rows = response.json()
+        if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+            raise RuntimeError("Rate limiter returned an invalid response")
+        return bool(rows[0].get("allowed")), max(0, int(rows[0].get("retry_after", 0)))
+    except (requests.RequestException, TypeError, ValueError) as exc:
+        raise RuntimeError("Shared rate limiter request failed") from exc
+
+
+def delete_user_data(user_id):
+    """Delete frontend and backend data before removing the auth account."""
+    if not SERVICE_ROLE_ENABLED:
+        raise RuntimeError("Supabase service role is not configured")
+
+    scoped_prefix = f"{user_id}:*"
+    deletions = (
+        ("conversations", "user_id", f"eq.{user_id}"),
+        (PROFILE_TABLE, "id", f"like.{scoped_prefix}"),
+        (HISTORY_TABLE, "session_id", f"like.{scoped_prefix}"),
+        (STATE_TABLE, "session_id", f"like.{scoped_prefix}"),
+        ("backend_rate_limit", "rate_key", f"like.{scoped_prefix}"),
+    )
+    failed = [
+        table
+        for table, column, expression in deletions
+        if not _delete_filter(table, column, expression)
+    ]
+    if failed:
+        raise RuntimeError(f"Could not delete user data from: {', '.join(failed)}")
+
+
+def delete_auth_user(user_id):
+    if not SERVICE_ROLE_ENABLED:
+        raise RuntimeError("Supabase service role is not configured")
+    try:
+        response = requests.delete(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers=_headers(),
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Could not reach the authentication service") from exc
+    if response.status_code not in (200, 204):
+        raise RuntimeError(f"Authentication service returned status {response.status_code}")
 
 
 # ====== USER PROFILE ======

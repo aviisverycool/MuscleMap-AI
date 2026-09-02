@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getAuthRedirectUrl, supabase } from "./supabase";
@@ -7,8 +7,27 @@ import bg from "./background-minimal.png";
 import BodyMap3D from "./components/BodyMap3D";
 
 const API_BASE_URL =
-  process.env.REACT_APP_API_URL ||
-  (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:8000/api");
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? "/api" : "http://localhost:8000/api");
+
+async function authenticatedApiFetch(path, options = {}) {
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data?.session?.access_token;
+  if (error || !accessToken) throw new Error("Your session has expired. Please sign in again.");
+
+  const headers = new Headers(options.headers || {});
+  headers.set("Authorization", `Bearer ${accessToken}`);
+  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+}
+
+async function apiErrorMessage(response, fallback) {
+  try {
+    const payload = await response.json();
+    return typeof payload?.detail === "string" ? payload.detail : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 // ── Icons ──────────────────────────────────────────────
 const PlusIcon = () => (
@@ -206,6 +225,7 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -244,8 +264,8 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
       showFeedback("error", "Passwords don't match.");
       return;
     }
-    if (newPassword.length < 6) {
-      showFeedback("error", "Password must be at least 6 characters.");
+    if (newPassword.length < 12) {
+      showFeedback("error", "Password must be at least 12 characters.");
       return;
     }
     setSaving(true);
@@ -260,11 +280,28 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
   }
 
   async function deleteAccount() {
-    if (deleteConfirm !== "DELETE") return;
+    if (deleteConfirm !== "DELETE" || !deletePassword) return;
     setSaving(true);
-    // Sign out — actual deletion requires an admin/edge function in production
-    await supabase.auth.signOut();
-    setSaving(false);
+    try {
+      const { error: reauthenticationError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: deletePassword,
+      });
+      if (reauthenticationError) {
+        showFeedback("error", "Current password is incorrect.");
+        return;
+      }
+
+      const response = await authenticatedApiFetch("/account", { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(await apiErrorMessage(response, "Account deletion failed."));
+      }
+      await supabase.auth.signOut({ scope: "local" });
+    } catch (error) {
+      showFeedback("error", error.message || "Account deletion failed.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const tabs = [
@@ -355,7 +392,7 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
             {activeTab === "password" && (
               <div className="settings-section">
                 <div className="settings-field-label">New Password</div>
-                <p className="settings-field-hint">Must be at least 6 characters.</p>
+                <p className="settings-field-hint">Must be at least 12 characters.</p>
                 <div className="pw-field-wrap">
                   <input
                     className="settings-input"
@@ -431,7 +468,18 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
                   <p className="settings-field-hint" style={{ marginBottom: 16 }}>
                     This action is permanent and cannot be undone. All your conversations and data will be lost.
                   </p>
-                  <div className="settings-field-label">Type <strong>DELETE</strong> to confirm</div>
+                  <div className="settings-field-label">Current password</div>
+                  <input
+                    className="settings-input danger-input"
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="Current password"
+                    autoComplete="current-password"
+                  />
+                  <div className="settings-field-label" style={{ marginTop: 16 }}>
+                    Type <strong>DELETE</strong> to confirm
+                  </div>
                   <input
                     className="settings-input danger-input"
                     type="text"
@@ -442,7 +490,7 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
                   <button
                     className="settings-delete-btn"
                     onClick={deleteAccount}
-                    disabled={deleteConfirm !== "DELETE" || saving}
+                    disabled={deleteConfirm !== "DELETE" || !deletePassword || saving}
                   >
                     {saving ? "Deleting…" : "Permanently Delete Account"}
                   </button>
@@ -642,7 +690,7 @@ export default function App() {
     deletedConversationIdsRef.current.add(id);
 
     try {
-      const backendResponse = await fetch(`${API_BASE_URL}/chat/${encodeURIComponent(id)}`, {
+      const backendResponse = await authenticatedApiFetch(`/chat/${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
       if (!backendResponse.ok) {
@@ -724,11 +772,12 @@ export default function App() {
 
   async function generateTitle(firstMessage) {
     try {
-      const res = await fetch(`${API_BASE_URL}/title`, {
+      const res = await authenticatedApiFetch("/title", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: firstMessage }),
       });
+      if (!res.ok) throw new Error(await apiErrorMessage(res, "Title generation failed."));
       const data = await res.json();
       return data.title || "New Chat";
     } catch {
@@ -763,7 +812,7 @@ export default function App() {
     const isFirstMessage = updatedMessages.length === 1;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/chat`, {
+      const res = await authenticatedApiFetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -772,6 +821,7 @@ export default function App() {
           body_part: selectedBodyPart,
         }),
       });
+      if (!res.ok) throw new Error(await apiErrorMessage(res, "Message request failed."));
       const data = await res.json();
 
       // A response that finishes after its conversation was deleted must not
@@ -853,6 +903,10 @@ export default function App() {
             <>
               <button className="auth-primary" onClick={async () => {
                 try {
+                  if (authData.password.length < 12) {
+                    alert("Password must be at least 12 characters.");
+                    return;
+                  }
                   const { error } = await supabase.auth.signUp({
                     email: authData.email,
                     password: authData.password,

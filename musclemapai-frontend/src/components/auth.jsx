@@ -24,6 +24,10 @@ async function handleAuth() {
   }
 
   // SIGN UP MODE
+  if (password.length < 12) {
+    alert("Password must be at least 12 characters.");
+    return;
+  }
   const { error } = await supabase.auth.signUp({
     email,
     password,

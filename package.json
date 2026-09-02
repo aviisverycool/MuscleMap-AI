@@ -5,12 +5,9 @@
   "scripts": {
     "build": "npm --prefix musclemapai-frontend run build",
     "start": "./start-all.sh",
-    "test": "npm --prefix musclemapai-frontend test -- --watchAll=false"
+    "test": "npm --prefix musclemapai-frontend test"
   },
   "engines": {
     "node": "20.x"
-  },
-  "dependencies": {
-    "fastapi": "^0.0.8"
   }
 }

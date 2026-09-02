@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as THREE from "three";
 
 const DEFAULT_COLOR = new THREE.Color("#91a6b0");
 const JOINT_COLOR = new THREE.Color("#7f959f");

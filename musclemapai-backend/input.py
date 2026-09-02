@@ -311,8 +311,10 @@ def load_memory():
         local_profiles = {
             session_id: _normalize_profile(profile)
             for session_id, profile in profiles.items()
-            if isinstance(session_id, str)
+            if isinstance(session_id, str) and ":" in session_id
         }
+        if len(local_profiles) != len(profiles):
+            _write_local_memory()
 
 
 def _write_local_memory():
@@ -813,6 +815,27 @@ def delete_session_memory(session_id):
 def purge_legacy_unscoped_memory():
     """Remove the former global profile, which cannot be assigned safely."""
     delete_session_memory("default")
+
+
+def evict_user_memory(user_id):
+    """Remove one user's server-process cache after durable account cleanup."""
+    prefix = f"{user_id}:"
+    session_ids = {
+        session_id
+        for store in (user_profiles, chat_history, last_context, last_request, local_profiles)
+        for session_id in store
+        if session_id.startswith(prefix)
+    }
+    for session_id in session_ids:
+        deleted_sessions.add(session_id)
+        user_profiles.pop(session_id, None)
+        chat_history.pop(session_id, None)
+        last_context.pop(session_id, None)
+        last_request.pop(session_id, None)
+        last_state_expiry.pop(session_id, None)
+        local_profiles.pop(session_id, None)
+    if session_ids and not SUPABASE_MEMORY_ENABLED:
+        _write_local_memory()
 
 
 def generate_response(text, session_id="default", body_part=None):
