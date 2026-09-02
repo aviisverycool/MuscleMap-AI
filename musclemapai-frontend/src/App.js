@@ -59,6 +59,22 @@ const CloseIcon = () => (
   </svg>
 );
 
+const MenuIcon = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <line x1="4" y1="6" x2="20" y2="6" />
+    <line x1="4" y1="12" x2="20" y2="12" />
+    <line x1="4" y1="18" x2="20" y2="18" />
+  </svg>
+);
+
+const CollapseSidebarIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="9" y1="4" x2="9" y2="20" />
+    <polyline points="14 9 11 12 14 15" />
+  </svg>
+);
+
 const SunIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="5"/>
@@ -454,6 +470,12 @@ export default function App() {
   }); // 'dark' | 'light'
   const [showSettings, setShowSettings] = useState(false);
   const [showBodyMap, setShowBodyMap] = useState(false);
+  const [isMobileLayout, setIsMobileLayout] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches
+  ));
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => (
+    typeof window === "undefined" || !window.matchMedia("(max-width: 760px)").matches
+  ));
 
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [conversationData, setConversationData] = useState({});
@@ -467,7 +489,7 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef(null);
 
-  const messagesEndRef = useRef(null);
+  const responseBoxRef = useRef(null);
   const textareaRef = useRef(null);
   const savedIdsRef = useRef(new Set()); // conversation ids that exist in Supabase
   const deletedConversationIdsRef = useRef(new Set());
@@ -482,13 +504,57 @@ export default function App() {
     }
   }, [theme]);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 760px)");
+    const handleLayoutChange = (event) => {
+      setIsMobileLayout(event.matches);
+      setIsSidebarOpen(!event.matches);
+    };
+
+    setIsMobileLayout(mediaQuery.matches);
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener("change", handleLayoutChange);
+      return () => mediaQuery.removeEventListener("change", handleLayoutChange);
+    }
+
+    mediaQuery.addListener(handleLayoutChange);
+    return () => mediaQuery.removeListener(handleLayoutChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileLayout || !isSidebarOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsSidebarOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileLayout, isSidebarOpen]);
+
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }
 
+  function toggleSidebar() {
+    setIsSidebarOpen((open) => {
+      if (!open && isMobileLayout) setShowBodyMap(false);
+      return !open;
+    });
+  }
+
+  function closeSidebarOnMobile() {
+    if (isMobileLayout) setIsSidebarOpen(false);
+  }
+
+  const scrollMessagesToBottom = useCallback((behavior = "smooth") => {
+    const container = responseBoxRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversationData, loading]);
+    scrollMessagesToBottom("smooth");
+  }, [conversationData, loading, scrollMessagesToBottom]);
 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
@@ -653,6 +719,7 @@ export default function App() {
     setConversationData((prev) => ({ ...prev, [id]: { title, messages: [] } }));
     setConversationOrder((prev) => [id, ...prev]);
     setCurrentConversationId(id);
+    closeSidebarOnMobile();
   }
 
   async function generateTitle(firstMessage) {
@@ -812,7 +879,10 @@ export default function App() {
 
   // ── MAIN APP ───────────────────────────────────────────
   return (
-    <div className="layout" style={{ backgroundImage: `url(${bg})` }}>
+    <div
+      className={`layout ${isSidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}
+      style={{ backgroundImage: `url(${bg})` }}
+    >
       {/* Settings Modal */}
       {showSettings && (
         <SettingsModal
@@ -824,8 +894,24 @@ export default function App() {
       )}
 
       {/* ── SIDEBAR ── */}
-      <div className="sidebar">
-        <div className="sidebar-header">MuscleMap AI</div>
+      <aside
+        id="app-sidebar"
+        className="sidebar"
+        aria-label="Conversation navigation"
+        aria-hidden={!isSidebarOpen}
+        inert={isSidebarOpen ? undefined : ""}
+      >
+        <div className="sidebar-header">
+          <span>MuscleMap AI</span>
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            aria-label="Collapse sidebar"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <CollapseSidebarIcon />
+          </button>
+        </div>
 
         <button className="new-chat-btn" onClick={newConversation}>
           <PlusIcon /> New Chat
@@ -842,7 +928,11 @@ export default function App() {
               <div
                 key={id}
                 className={`conversation-item ${currentConversationId === id ? "active" : ""}`}
-                onClick={() => !isRenaming && setCurrentConversationId(id)}
+                onClick={() => {
+                  if (isRenaming) return;
+                  setCurrentConversationId(id);
+                  closeSidebarOnMobile();
+                }}
               >
                 {isRenaming ? (
                   <div className="rename-row" onClick={(e) => e.stopPropagation()}>
@@ -878,20 +968,43 @@ export default function App() {
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
             {theme === "dark" ? "Light Mode" : "Dark Mode"}
           </button>
-          <button className="sidebar-btn" onClick={() => setShowSettings(true)}>
+          <button className="sidebar-btn" onClick={() => {
+            setShowSettings(true);
+            closeSidebarOnMobile();
+          }}>
             <SettingsIcon /> Account Settings
           </button>
           <button className="sidebar-btn" onClick={() => supabase.auth.signOut()}>
             <LogoutIcon /> Sign Out
           </button>
         </div>
-      </div>
+      </aside>
+
+      <button
+        type="button"
+        className="sidebar-backdrop"
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={() => setIsSidebarOpen(false)}
+      />
 
       {/* ── MAIN CHAT ── */}
       <div className="main-chat">
-        <div className="chat-topbar">{currentTitle}</div>
+        <div className="chat-topbar">
+          <button
+            type="button"
+            className="sidebar-toggle-btn"
+            aria-label={isSidebarOpen ? "Collapse sidebar" : "Open sidebar"}
+            aria-controls="app-sidebar"
+            aria-expanded={isSidebarOpen}
+            onClick={toggleSidebar}
+          >
+            <MenuIcon />
+          </button>
+          <div className="chat-topbar-title">{currentTitle}</div>
+        </div>
 
-        <div className="response-box">
+        <div className="response-box" ref={responseBoxRef}>
           {currentMessages.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-copy">
@@ -912,7 +1025,7 @@ export default function App() {
                           typingTarget?.conversationId === currentConversationId &&
                           typingTarget?.messageIndex === i
                         }
-                        onProgress={() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" })}
+                        onProgress={() => scrollMessagesToBottom("auto")}
                         onComplete={() => {
                           setTypingTarget((current) => (
                             current?.conversationId === currentConversationId &&
@@ -943,7 +1056,7 @@ export default function App() {
             </div>
           )}
 
-          <div ref={messagesEndRef} />
+          <div />
         </div>
 
         <button
@@ -980,7 +1093,7 @@ export default function App() {
                 ref={textareaRef}
                 placeholder="Message MuscleMap AI..."
                 value={message}
-                rows={3}
+                rows={isMobileLayout ? 1 : 3}
                 onChange={handleTextareaChange}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
