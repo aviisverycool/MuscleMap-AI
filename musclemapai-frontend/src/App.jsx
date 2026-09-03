@@ -218,7 +218,6 @@ const EyeOffIcon = () => (
 
 // ── Settings Modal ─────────────────────────────────────
 function SettingsModal({ user, onClose, theme, onToggleTheme }) {
-  const [activeTab, setActiveTab] = useState("profile");
   const [displayName, setDisplayName] = useState(
     user.user_metadata?.display_name || user.email?.split("@")[0] || ""
   );
@@ -304,38 +303,15 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
     }
   }
 
-  const tabs = [
-    { id: "profile", label: "Profile" },
-    { id: "email", label: "Email" },
-    { id: "password", label: "Password" },
-    { id: "appearance", label: "Appearance" },
-    { id: "danger", label: "Danger Zone" },
-  ];
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <div className="settings-header">
           <h2>Account Settings</h2>
           <button className="modal-close-btn" onClick={onClose}><CloseIcon /></button>
         </div>
 
         <div className="settings-body">
-          {/* Tabs */}
-          <div className="settings-tabs">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                className={`settings-tab ${activeTab === t.id ? "active" : ""} ${t.id === "danger" ? "danger-tab" : ""}`}
-                onClick={() => setActiveTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Content */}
           <div className="settings-content">
             {feedback && (
               <div className={`settings-feedback ${feedback.type}`}>
@@ -343,160 +319,143 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
               </div>
             )}
 
-            {/* PROFILE */}
-            {activeTab === "profile" && (
-              <div className="settings-section">
-                <div className="settings-field-label">Display Name</div>
-                <p className="settings-field-hint">This is how your name appears in chats.</p>
+            <section className="settings-section">
+              <h3 className="settings-section-title">Profile</h3>
+              <div className="settings-field-label">Display Name</div>
+              <p className="settings-field-hint">This is how your name appears in chats.</p>
+              <input
+                className="settings-input"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Your display name"
+              />
+              <button className="settings-save-btn" onClick={saveDisplayName} disabled={saving}>
+                {saving ? "Saving…" : "Save Display Name"}
+              </button>
+            </section>
+
+            <section className="settings-section">
+              <h3 className="settings-section-title">Email</h3>
+              <div className="settings-field-label">Current Email</div>
+              <input className="settings-input" type="text" value={user.email} disabled />
+              <div className="settings-field-label settings-field-spaced">New Email Address</div>
+              <p className="settings-field-hint">A confirmation link will be sent to the new address.</p>
+              <input
+                className="settings-input"
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="new@email.com"
+              />
+              <button className="settings-save-btn" onClick={saveEmail} disabled={saving || !newEmail.trim()}>
+                {saving ? "Saving…" : "Update Email"}
+              </button>
+            </section>
+
+            <section className="settings-section">
+              <h3 className="settings-section-title">Password</h3>
+              <div className="settings-field-label">New Password</div>
+              <p className="settings-field-hint">Must be at least 12 characters.</p>
+              <div className="pw-field-wrap">
                 <input
                   className="settings-input"
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Your display name"
+                  type={showNewPw ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New password"
                 />
-                <div className="settings-field-label" style={{ marginTop: 20 }}>Email</div>
-                <input
-                  className="settings-input"
-                  type="text"
-                  value={user.email}
-                  disabled
-                />
-                <button className="settings-save-btn" onClick={saveDisplayName} disabled={saving}>
-                  {saving ? "Saving…" : "Save Changes"}
+                <button className="pw-toggle" onClick={() => setShowNewPw((v) => !v)}>
+                  {showNewPw ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
-            )}
-
-            {/* EMAIL */}
-            {activeTab === "email" && (
-              <div className="settings-section">
-                <div className="settings-field-label">Current Email</div>
-                <input className="settings-input" type="text" value={user.email} disabled />
-                <div className="settings-field-label" style={{ marginTop: 20 }}>New Email Address</div>
-                <p className="settings-field-hint">A confirmation link will be sent to the new address.</p>
+              <div className="settings-field-label settings-field-spaced">Confirm Password</div>
+              <div className="pw-field-wrap">
                 <input
                   className="settings-input"
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="new@email.com"
+                  type={showCurrentPw ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
                 />
-                <button className="settings-save-btn" onClick={saveEmail} disabled={saving || !newEmail.trim()}>
-                  {saving ? "Saving…" : "Update Email"}
+                <button className="pw-toggle" onClick={() => setShowCurrentPw((v) => !v)}>
+                  {showCurrentPw ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
-            )}
+              <button
+                className="settings-save-btn"
+                onClick={savePassword}
+                disabled={saving || !newPassword || !confirmPassword}
+              >
+                {saving ? "Saving…" : "Update Password"}
+              </button>
+            </section>
 
-            {/* PASSWORD */}
-            {activeTab === "password" && (
-              <div className="settings-section">
-                <div className="settings-field-label">New Password</div>
-                <p className="settings-field-hint">Must be at least 12 characters.</p>
-                <div className="pw-field-wrap">
-                  <input
-                    className="settings-input"
-                    type={showNewPw ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="New password"
-                  />
-                  <button className="pw-toggle" onClick={() => setShowNewPw((v) => !v)}>
-                    {showNewPw ? <EyeOffIcon /> : <EyeIcon />}
-                  </button>
-                </div>
-                <div className="settings-field-label" style={{ marginTop: 16 }}>Confirm Password</div>
-                <div className="pw-field-wrap">
-                  <input
-                    className="settings-input"
-                    type={showCurrentPw ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm new password"
-                  />
-                  <button className="pw-toggle" onClick={() => setShowCurrentPw((v) => !v)}>
-                    {showCurrentPw ? <EyeOffIcon /> : <EyeIcon />}
-                  </button>
-                </div>
+            <section className="settings-section">
+              <h3 className="settings-section-title">Appearance</h3>
+              <div className="settings-field-label">Theme</div>
+              <p className="settings-field-hint">Choose your preferred color scheme.</p>
+              <div className="theme-toggle-row">
                 <button
-                  className="settings-save-btn"
-                  onClick={savePassword}
-                  disabled={saving || !newPassword || !confirmPassword}
+                  className={`theme-option ${theme === "dark" ? "active" : ""}`}
+                  onClick={() => theme !== "dark" && onToggleTheme()}
                 >
-                  {saving ? "Saving…" : "Update Password"}
+                  <MoonIcon />
+                  <span>Dark</span>
+                </button>
+                <button
+                  className={`theme-option ${theme === "light" ? "active" : ""}`}
+                  onClick={() => theme !== "light" && onToggleTheme()}
+                >
+                  <SunIcon />
+                  <span>Light</span>
                 </button>
               </div>
-            )}
-
-            {/* APPEARANCE */}
-            {activeTab === "appearance" && (
-              <div className="settings-section">
-                <div className="settings-field-label">Theme</div>
-                <p className="settings-field-hint">Choose your preferred color scheme.</p>
-                <div className="theme-toggle-row">
-                  <button
-                    className={`theme-option ${theme === "dark" ? "active" : ""}`}
-                    onClick={() => theme !== "dark" && onToggleTheme()}
-                  >
-                    <MoonIcon />
-                    <span>Dark</span>
-                  </button>
-                  <button
-                    className={`theme-option ${theme === "light" ? "active" : ""}`}
-                    onClick={() => theme !== "light" && onToggleTheme()}
-                  >
-                    <SunIcon />
-                    <span>Light</span>
-                  </button>
-                </div>
-                <div className="theme-preview">
-                  <div className={`preview-card ${theme}`}>
-                    <div className="preview-bar" />
-                    <div className="preview-line short" />
-                    <div className="preview-line" />
-                    <div className="preview-line short" />
-                  </div>
+              <div className="theme-preview">
+                <div className={`preview-card ${theme}`}>
+                  <div className="preview-bar" />
+                  <div className="preview-line short" />
+                  <div className="preview-line" />
+                  <div className="preview-line short" />
                 </div>
               </div>
-            )}
+            </section>
 
-            {/* DANGER ZONE */}
-            {activeTab === "danger" && (
-              <div className="settings-section">
-                <div className="danger-box">
-                  <div className="danger-box-title">Delete Account</div>
-                  <p className="settings-field-hint" style={{ marginBottom: 16 }}>
-                    This action is permanent and cannot be undone. All your conversations and data will be lost.
-                  </p>
-                  <div className="settings-field-label">Current password</div>
-                  <input
-                    className="settings-input danger-input"
-                    type="password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    placeholder="Current password"
-                    autoComplete="current-password"
-                  />
-                  <div className="settings-field-label" style={{ marginTop: 16 }}>
-                    Type <strong>DELETE</strong> to confirm
-                  </div>
-                  <input
-                    className="settings-input danger-input"
-                    type="text"
-                    value={deleteConfirm}
-                    onChange={(e) => setDeleteConfirm(e.target.value)}
-                    placeholder="DELETE"
-                  />
-                  <button
-                    className="settings-delete-btn"
-                    onClick={deleteAccount}
-                    disabled={deleteConfirm !== "DELETE" || !deletePassword || saving}
-                  >
-                    {saving ? "Deleting…" : "Permanently Delete Account"}
-                  </button>
+            <section className="settings-section">
+              <h3 className="settings-section-title">Danger Zone</h3>
+              <div className="danger-box">
+                <div className="danger-box-title">Delete Account</div>
+                <p className="settings-field-hint" style={{ marginBottom: 16 }}>
+                  This action is permanent and cannot be undone. All your conversations and data will be lost.
+                </p>
+                <div className="settings-field-label">Current password</div>
+                <input
+                  className="settings-input danger-input"
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Current password"
+                  autoComplete="current-password"
+                />
+                <div className="settings-field-label settings-field-spaced">
+                  Type <strong>DELETE</strong> to confirm
                 </div>
+                <input
+                  className="settings-input danger-input"
+                  type="text"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder="DELETE"
+                />
+                <button
+                  className="settings-delete-btn"
+                  onClick={deleteAccount}
+                  disabled={deleteConfirm !== "DELETE" || !deletePassword || saving}
+                >
+                  {saving ? "Deleting…" : "Permanently Delete Account"}
+                </button>
               </div>
-            )}
+            </section>
           </div>
         </div>
       </div>

@@ -955,45 +955,15 @@ body {
 .settings-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
-
-/* Tabs */
-.settings-tabs {
-  width: 150px;
-  flex-shrink: 0;
-  padding: 12px 8px;
-  background: var(--topbar-overlay);
-  border-right: 1px solid var(--modal-header-border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-}
-
-.settings-tab {
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--tab-color);
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s, color 0.15s;
-  width: 100%;
-}
-.settings-tab:hover { background: var(--hover-bg); color: var(--text-primary); }
-.settings-tab.active { background: var(--tab-active-bg); color: var(--tab-active-color); font-weight: 600; }
-.settings-tab.danger-tab { color: var(--text-primary); margin-top: auto; }
-.settings-tab.danger-tab:hover { background: rgba(239, 68, 68, 0.1); }
-.settings-tab.danger-tab.active { background: rgba(239, 68, 68, 0.12); color: var(--text-primary); }
 
 /* Content */
 .settings-content {
   flex: 1;
-  padding: 20px 24px;
+  width: 100%;
+  padding: 24px 28px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1001,7 +971,24 @@ body {
 .settings-content::-webkit-scrollbar { width: 4px; }
 .settings-content::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 
-.settings-section { display: flex; flex-direction: column; gap: 6px; }
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 28px;
+}
+.settings-section + .settings-section {
+  padding-top: 24px;
+  border-top: 1px solid var(--modal-header-border);
+}
+.settings-section:last-child { padding-bottom: 4px; }
+
+.settings-section-title {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
 
 .settings-field-label {
   font-size: 13px;
@@ -1016,6 +1003,8 @@ body {
   line-height: 1.5;
   margin-bottom: 4px;
 }
+
+.settings-field-spaced { margin-top: 16px; }
 
 .settings-input {
   width: 100%;
@@ -1077,6 +1066,9 @@ body {
 
 /* Feedback banner */
 .settings-feedback {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13.5px;
@@ -1423,24 +1415,6 @@ body {
     border-radius: 20px;
   }
   .settings-header { padding: 16px 18px 13px; }
-  .settings-body { flex-direction: column; }
-  .settings-tabs {
-    width: 100%;
-    padding: 8px;
-    flex-direction: row;
-    flex-shrink: 0;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--modal-header-border);
-  }
-  .settings-tab {
-    width: auto;
-    min-width: max-content;
-    flex: 0 0 auto;
-    padding: 9px 11px;
-    text-align: center;
-  }
-  .settings-tab.danger-tab { margin-top: 0; }
   .settings-content { padding: 18px; }
   .danger-box { padding: 16px; }
 
