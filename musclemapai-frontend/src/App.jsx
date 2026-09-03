@@ -5,6 +5,7 @@ import { getAuthRedirectUrl, supabase } from "./supabase";
 import "./App.css";
 import bg from "./background-minimal.png";
 import BodyMap3D from "./components/BodyMap3D";
+import { normalizeMarkdownForRendering } from "./markdown";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
@@ -144,7 +145,7 @@ function renderMarkdown(text) {
         },
       }}
     >
-      {text}
+      {normalizeMarkdownForRendering(text)}
     </ReactMarkdown>
   );
 }
