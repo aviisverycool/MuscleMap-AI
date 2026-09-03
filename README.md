@@ -19,9 +19,10 @@ configured as one Vercel Services project:
    The backend uses Groq's free tier and defaults to `openai/gpt-oss-120b`.
    It automatically falls back to `openai/gpt-oss-20b` when the primary model
    is unavailable. You can override these with `GROQ_MODEL` and
-   `GROQ_FALLBACK_MODEL`, and tune reasoning with
-   `GROQ_REASONING_EFFORT` (`low`, `medium`, or `high`). If no Groq key is
-   present, the backend can still use `CEREBRAS_API_KEY` as a paid fallback.
+   `GROQ_FALLBACK_MODEL`. Chat requests use low reasoning, while titles use the
+   non-reasoning `llama-3.1-8b-instant` model (or the configured Agnes model as
+   a fallback). If no Groq key is present, the backend can still use
+   `CEREBRAS_API_KEY` as a paid fallback.
 4. Add `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
    `SUPABASE_SERVICE_ROLE_KEY` to the backend service. These are required for
    API token validation, account deletion, owner-scoped memory, and shared rate

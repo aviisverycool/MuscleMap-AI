@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -30,6 +31,14 @@ import uvicorn
 
 logger = logging.getLogger(__name__)
 MAX_REQUEST_BODY_BYTES = 32 * 1024
+TITLE_MODEL = "llama-3.1-8b-instant"
+TITLE_FALLBACK_PROVIDER = "Agnes"
+TITLE_MAX_TOKENS = 160
+TITLE_STOP_WORDS = {
+    "a", "an", "and", "are", "about", "can", "could", "do", "for", "how",
+    "i", "is", "me", "my", "of", "please", "tell", "the", "to", "what",
+    "would", "you",
+}
 
 
 class RequestBodyLimitMiddleware:
@@ -187,15 +196,61 @@ User message: {req.message}"""
             structured=False,
             use_persona=False,
             include_history=False,
-            max_tokens=24,
-        ).strip().strip('"').strip("'")
-        if title.startswith("{"):
-            # The model returned an error JSON object (e.g. bad API key)
-            return {"title": "New Chat"}
-        return {"title": title}
+            max_tokens=TITLE_MAX_TOKENS,
+            reasoning_effort="none",
+            model_override=TITLE_MODEL,
+            provider_name_prefix="Groq",
+        )
+        if not is_usable_title_response(title):
+            title = ask_model(
+                prompt,
+                record=False,
+                structured=False,
+                use_persona=False,
+                include_history=False,
+                max_tokens=TITLE_MAX_TOKENS,
+                reasoning_effort="none",
+                provider_name_prefix=TITLE_FALLBACK_PROVIDER,
+            )
+        return {"title": clean_conversation_title(title, req.message)}
     except Exception as e:
         logger.warning("Title generation failed: %s", type(e).__name__)
-        return {"title": "New Chat"}
+        return {"title": fallback_conversation_title(req.message)}
+
+
+def fallback_conversation_title(message):
+    words = re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", message)
+    meaningful = [word for word in words if word.lower() not in TITLE_STOP_WORDS]
+    selected = (meaningful if meaningful else words)[:6]
+    if not selected:
+        return "New Chat"
+    return " ".join(word if word.isupper() else word.capitalize() for word in selected)
+
+
+def is_usable_title_response(raw_title):
+    return (
+        isinstance(raw_title, str)
+        and bool(raw_title.strip())
+        and not raw_title.lstrip().startswith("{")
+    )
+
+
+def clean_conversation_title(raw_title, first_message):
+    fallback = fallback_conversation_title(first_message)
+    if not isinstance(raw_title, str):
+        return fallback
+
+    title = raw_title.strip()
+    if not title or title.startswith("{"):
+        return fallback
+    title = next((line.strip() for line in title.splitlines() if line.strip()), "")
+    title = re.sub(r"^#{1,6}\s*", "", title)
+    title = re.sub(r"^title\s*:\s*", "", title, flags=re.IGNORECASE)
+    title = title.strip().strip('"\'`').rstrip(".!?:;,- ")
+    words = title.split()
+    if not words:
+        return fallback
+    return " ".join(words[:6])[:80] or fallback
 
 
 @app.delete("/api/account")

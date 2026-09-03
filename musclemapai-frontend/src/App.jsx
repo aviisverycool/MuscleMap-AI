@@ -9,6 +9,21 @@ import BodyMap3D from "./components/BodyMap3D";
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.PROD ? "/api" : "http://localhost:8000/api");
+const TITLE_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "about", "can", "could", "do", "for", "how",
+  "i", "is", "me", "my", "of", "please", "tell", "the", "to", "what",
+  "would", "you",
+]);
+
+function fallbackConversationTitle(message) {
+  const words = message.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?/g) || [];
+  const meaningful = words.filter((word) => !TITLE_STOP_WORDS.has(word.toLowerCase()));
+  const selected = (meaningful.length ? meaningful : words).slice(0, 6);
+  if (!selected.length) return "New Chat";
+  return selected
+    .map((word) => (word === word.toUpperCase() ? word : word[0].toUpperCase() + word.slice(1)))
+    .join(" ");
+}
 
 async function authenticatedApiFetch(path, options = {}) {
   const { data, error } = await supabase.auth.getSession();
@@ -738,6 +753,7 @@ export default function App() {
   }
 
   async function generateTitle(firstMessage) {
+    const fallback = fallbackConversationTitle(firstMessage);
     try {
       const res = await authenticatedApiFetch("/title", {
         method: "POST",
@@ -746,9 +762,9 @@ export default function App() {
       });
       if (!res.ok) throw new Error(await apiErrorMessage(res, "Title generation failed."));
       const data = await res.json();
-      return data.title || "New Chat";
+      return data.title?.trim() || fallback;
     } catch {
-      return "New Chat";
+      return fallback;
     }
   }
 
