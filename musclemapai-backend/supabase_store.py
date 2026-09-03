@@ -12,6 +12,29 @@ ENABLED = SERVICE_ROLE_ENABLED
 PROFILE_TABLE = "backend_profile"
 HISTORY_TABLE = "backend_history"
 STATE_TABLE = "backend_state"
+_missing_optional_tables = set()
+_rate_limit_schema_missing = False
+
+
+class RateLimitSchemaUnavailable(RuntimeError):
+    """Raised when the optional shared rate-limit migration is not installed."""
+
+
+def _response_error_code(response):
+    try:
+        payload = response.json()
+    except (TypeError, ValueError):
+        return ""
+    return payload.get("code", "") if isinstance(payload, dict) else ""
+
+
+def _is_missing_schema_object(response):
+    return response.status_code == 404 and _response_error_code(response) in {
+        "42P01",   # PostgreSQL undefined_table
+        "42883",   # PostgreSQL undefined_function
+        "PGRST202",  # PostgREST function missing from schema cache
+        "PGRST205",  # PostgREST table missing from schema cache
+    }
 
 if not ENABLED:
     print("WARNING: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set. Falling back to local files.")
@@ -26,6 +49,8 @@ def _headers():
 
 
 def _fetch(table, column, value):
+    if table in _missing_optional_tables:
+        return None
     try:
         r = requests.get(
             f"{SUPABASE_URL}/rest/v1/{table}",
@@ -34,6 +59,9 @@ def _fetch(table, column, value):
             timeout=10,
         )
         if r.status_code != 200:
+            if _is_missing_schema_object(r):
+                _missing_optional_tables.add(table)
+                return None
             print(f"Supabase fetch error {r.status_code}: {r.text[:200]}")
             return None
         rows = r.json()
@@ -44,6 +72,8 @@ def _fetch(table, column, value):
 
 
 def _upsert(table, payload):
+    if table in _missing_optional_tables:
+        return
     try:
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
@@ -52,13 +82,16 @@ def _upsert(table, payload):
             timeout=10,
         )
         if r.status_code not in (200, 201, 204):
+            if _is_missing_schema_object(r):
+                _missing_optional_tables.add(table)
+                return
             print(f"Supabase upsert error {r.status_code}: {r.text[:200]}")
     except Exception as e:
         print(f"Supabase upsert failed: {e}")
 
 
 def _delete(table, column, value):
-    if not ENABLED:
+    if not ENABLED or table in _missing_optional_tables:
         return True
     try:
         r = requests.delete(
@@ -67,6 +100,13 @@ def _delete(table, column, value):
             headers=_headers(),
             timeout=10,
         )
+        if _is_missing_schema_object(r):
+            # The backend-memory tables are an optional durability layer. If a
+            # deployment has not applied that migration yet, there is no
+            # durable row to remove; in-process memory is still cleared by the
+            # caller and the user-owned conversation can be deleted normally.
+            _missing_optional_tables.add(table)
+            return True
         if r.status_code not in (200, 204):
             print(f"Supabase delete error {r.status_code}: {r.text[:200]}")
             return False
@@ -96,8 +136,14 @@ def _delete_filter(table, column, expression):
 
 
 def consume_rate_limit(key, limit, window_seconds):
+    global _rate_limit_schema_missing
+
     if not SERVICE_ROLE_ENABLED:
         raise RuntimeError("Shared rate limiting is not configured")
+    if _rate_limit_schema_missing:
+        raise RateLimitSchemaUnavailable(
+            "Shared rate-limit schema has not been installed"
+        )
     try:
         response = requests.post(
             f"{SUPABASE_URL}/rest/v1/rpc/consume_backend_rate_limit",
@@ -109,6 +155,11 @@ def consume_rate_limit(key, limit, window_seconds):
             },
             timeout=10,
         )
+        if _is_missing_schema_object(response):
+            _rate_limit_schema_missing = True
+            raise RateLimitSchemaUnavailable(
+                "Shared rate-limit schema has not been installed"
+            )
         if response.status_code != 200:
             raise RuntimeError(f"Rate limiter returned status {response.status_code}")
         rows = response.json()

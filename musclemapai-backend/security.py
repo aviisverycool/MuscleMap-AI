@@ -10,7 +10,11 @@ import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from supabase_store import SERVICE_ROLE_ENABLED, consume_rate_limit
+from supabase_store import (
+    SERVICE_ROLE_ENABLED,
+    RateLimitSchemaUnavailable,
+    consume_rate_limit,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -119,6 +123,7 @@ def scoped_conversation_id(user_id: str, conversation_id: str) -> str:
 
 _local_rate_limits: dict[str, tuple[float, int]] = {}
 _local_rate_limit_lock = threading.Lock()
+_rate_limit_fallback_warned = False
 
 
 def _consume_local_rate_limit(key: str, limit: int, window_seconds: int) -> tuple[bool, int]:
@@ -142,10 +147,24 @@ def enforce_rate_limit(
     limit: int,
     window_seconds: int,
 ) -> None:
+    global _rate_limit_fallback_warned
+
     key = f"{user_id}:{bucket}"
     if SERVICE_ROLE_ENABLED:
         try:
             allowed, retry_after = consume_rate_limit(key, limit, window_seconds)
+        except RateLimitSchemaUnavailable:
+            # Keep authenticated deployments usable while the optional shared
+            # limiter migration is pending. This fallback is per process, so a
+            # warning remains visible until the SQL migration is applied.
+            if not _rate_limit_fallback_warned:
+                logger.warning(
+                    "Shared rate-limit schema is unavailable; using the local limiter"
+                )
+                _rate_limit_fallback_warned = True
+            allowed, retry_after = _consume_local_rate_limit(
+                key, limit, window_seconds
+            )
         except RuntimeError:
             logger.exception("Shared rate limiter failed")
             raise HTTPException(

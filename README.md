@@ -28,6 +28,10 @@ configured as one Vercel Services project:
    limiting. Apply `musclemapai-backend/supabase_schema.sql` to the same
    Supabase project before deploying. Never expose the service-role key through
    a `VITE_*` variable.
+   If the optional backend-memory/rate-limit tables have not been migrated yet,
+   authenticated chat and conversation deletion temporarily fall back to
+   per-instance memory and rate limiting. Apply the migration for durable health
+   context, shared serverless rate limits, and account deletion.
    Backend memory is scoped to each conversation. Deleting a conversation
    removes its profile, hidden model history, and pending follow-up state.
    Injury details expire automatically based on a finite recovery-oriented

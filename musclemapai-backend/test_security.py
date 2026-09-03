@@ -60,6 +60,9 @@ class AuthenticationTests(unittest.TestCase):
 class AuthorizationAndRateLimitTests(unittest.TestCase):
     def setUp(self):
         security._local_rate_limits.clear()
+        security._rate_limit_fallback_warned = False
+        supabase_store._missing_optional_tables.clear()
+        supabase_store._rate_limit_schema_missing = False
 
     def test_conversation_storage_is_namespaced_by_user(self):
         conversation_id = str(uuid4())
@@ -82,6 +85,59 @@ class AuthorizationAndRateLimitTests(unittest.TestCase):
         ), self.assertRaises(HTTPException) as raised:
             security.enforce_rate_limit("user", "test", limit=2, window_seconds=60)
         self.assertEqual(raised.exception.status_code, 503)
+
+    def test_missing_shared_rate_limit_schema_uses_local_limiter(self):
+        with patch.object(security, "SERVICE_ROLE_ENABLED", True), patch.object(
+            security,
+            "consume_rate_limit",
+            side_effect=supabase_store.RateLimitSchemaUnavailable,
+        ):
+            security.enforce_rate_limit("user", "test", limit=1, window_seconds=60)
+            with self.assertRaises(HTTPException) as raised:
+                security.enforce_rate_limit("user", "test", limit=1, window_seconds=60)
+        self.assertEqual(raised.exception.status_code, 429)
+
+    def test_missing_optional_memory_table_counts_as_deleted(self):
+        response = Mock(status_code=404)
+        response.json.return_value = {"code": "PGRST205"}
+        response.text = "missing table"
+
+        with patch.object(supabase_store, "ENABLED", True), patch.object(
+            supabase_store.requests, "delete", return_value=response
+        ) as request:
+            deleted = supabase_store._delete("backend_history", "session_id", "id")
+            deleted_again = supabase_store._delete("backend_history", "session_id", "id")
+
+        self.assertTrue(deleted)
+        self.assertTrue(deleted_again)
+        request.assert_called_once()
+
+    def test_other_memory_delete_errors_still_fail_closed(self):
+        response = Mock(status_code=503)
+        response.json.return_value = {"code": "temporary_failure"}
+        response.text = "unavailable"
+
+        with patch.object(supabase_store, "ENABLED", True), patch.object(
+            supabase_store.requests, "delete", return_value=response
+        ):
+            deleted = supabase_store._delete("backend_history", "session_id", "id")
+
+        self.assertFalse(deleted)
+
+    def test_missing_rate_limit_rpc_is_cached(self):
+        response = Mock(status_code=404)
+        response.json.return_value = {"code": "PGRST202"}
+        response.text = "missing function"
+
+        with patch.object(supabase_store, "SERVICE_ROLE_ENABLED", True), patch.object(
+            supabase_store.requests, "post", return_value=response
+        ) as request:
+            with self.assertRaises(supabase_store.RateLimitSchemaUnavailable):
+                supabase_store.consume_rate_limit("user:test", 1, 60)
+            with self.assertRaises(supabase_store.RateLimitSchemaUnavailable):
+                supabase_store.consume_rate_limit("user:other", 1, 60)
+
+        request.assert_called_once()
 
     def test_account_cleanup_covers_all_user_tables(self):
         with patch.object(supabase_store, "SERVICE_ROLE_ENABLED", True), patch.object(

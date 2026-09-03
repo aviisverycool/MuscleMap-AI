@@ -269,6 +269,17 @@ body {
 .conversation-list::-webkit-scrollbar { width: 4px; }
 .conversation-list::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 
+.conversation-error {
+  margin: 6px 8px 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 7px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .convo-section-label {
   padding: 8px 12px 4px;
   font-size: 11px;

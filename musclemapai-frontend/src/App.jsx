@@ -535,6 +535,7 @@ export default function App() {
   const [typingTarget, setTypingTarget] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [conversationError, setConversationError] = useState("");
   const renameInputRef = useRef(null);
 
   const responseBoxRef = useRef(null);
@@ -666,6 +667,7 @@ export default function App() {
       console.error("Error checking conversation ownership:", lookupError);
       return;
     }
+    if (deletedConversationIdsRef.current.has(convId)) return;
 
     if (data) {
       const { error } = await supabase
@@ -687,6 +689,7 @@ export default function App() {
   // Delete conversation
   async function deleteConversation(e, id) {
     e.stopPropagation();
+    setConversationError("");
     deletedConversationIdsRef.current.add(id);
 
     try {
@@ -694,11 +697,15 @@ export default function App() {
         method: "DELETE",
       });
       if (!backendResponse.ok) {
-        throw new Error(`Backend memory deletion failed (${backendResponse.status})`);
+        throw new Error(await apiErrorMessage(
+          backendResponse,
+          `Conversation deletion failed (${backendResponse.status}).`
+        ));
       }
     } catch (error) {
       deletedConversationIdsRef.current.delete(id);
       console.error("Error deleting backend conversation memory:", error);
+      setConversationError(error?.message || "Conversation deletion failed. Please try again.");
       return;
     }
 
@@ -710,6 +717,7 @@ export default function App() {
     if (error) {
       deletedConversationIdsRef.current.delete(id);
       console.error("Error deleting conversation:", error);
+      setConversationError(error.message || "Conversation deletion failed. Please try again.");
       return;
     }
     savedIdsRef.current.delete(id);
@@ -846,9 +854,10 @@ export default function App() {
     } catch (err) {
       if (deletedConversationIdsRef.current.has(convId)) return;
       console.error("Frontend → Backend error:", err);
+      const errorDetail = err?.message || "The request could not be completed.";
       const errorMessages = [
         ...updatedMessages,
-        { role: "assistant", text: "Sorry, something went wrong. Please try again." },
+        { role: "assistant", text: `Sorry, ${errorDetail} Please try again.` },
       ];
       setTypingTarget({ conversationId: convId, messageIndex: updatedMessages.length });
       setConversationData((prev) => ({
@@ -1016,6 +1025,10 @@ export default function App() {
             );
           })}
         </div>
+
+        {conversationError && (
+          <div className="conversation-error" role="alert">{conversationError}</div>
+        )}
 
         <div className="sidebar-footer">
           <button className="sidebar-btn theme-sidebar-btn" onClick={toggleTheme}>
