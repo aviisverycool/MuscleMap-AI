@@ -44,6 +44,9 @@
   --feedback-error-color: #f7f9fc;
   --body-map-border: rgba(255, 255, 255, 0.14);
   --body-map-toolbar: rgba(8, 13, 17, 0.78);
+  --body-map-surface: rgba(16, 30, 34, 0.12);
+  --body-map-selection: #b4f5df;
+  --body-map-model-color: #d6e9ed;
 }
 
 [data-theme="light"] {
@@ -88,6 +91,9 @@
   --feedback-error-color: #111318;
   --body-map-border: rgba(0, 0, 0, 0.13);
   --body-map-toolbar: rgba(255, 255, 255, 0.8);
+  --body-map-surface: rgba(255, 255, 255, 0.12);
+  --body-map-selection: #174f40;
+  --body-map-model-color: #45676b;
 }
 
 body {
@@ -421,10 +427,10 @@ body {
   border-top: 1px solid var(--sidebar-border);
   border-bottom: 1px solid var(--sidebar-border);
   border-radius: 14px 0 0 14px;
-  background: var(--bg-overlay);
-  box-shadow: -16px 0 42px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--body-map-surface);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   transform: translateX(100%);
   opacity: 0;
   visibility: hidden;
@@ -536,7 +542,7 @@ body {
   transition: color 0.2s;
 }
 
-.body-map-selection.has-selection { color: var(--text-primary); }
+.body-map-selection.has-selection { color: var(--body-map-selection); }
 
 .body-map-reset {
   pointer-events: auto;
@@ -592,6 +598,13 @@ body {
 }
 
 .body-map-controls span { display: inline-flex; align-items: center; gap: 5px; }
+.body-map-controls .body-map-touch-hint { display: none; }
+
+@media (pointer: coarse) {
+  .body-map-controls .body-map-mouse-hint { display: none; }
+  .body-map-controls .body-map-touch-hint { display: inline-flex; }
+}
+
 .control-dot { width: 6px; height: 6px; border-radius: 50%; background: #10a37f; }
 .control-dot.drag { background: #62a8ff; }
 .control-dot.zoom { background: #ff8b68; }
@@ -1394,6 +1407,7 @@ body {
   .body-map-tab-icon { width: 22px; height: 22px; }
   .body-map-toolbar { padding: 12px; }
   .body-map-controls {
+    bottom: 56px;
     max-width: calc(100% - 24px);
     gap: 9px;
     padding: 6px 9px;

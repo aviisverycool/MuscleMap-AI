@@ -2,16 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as THREE from "three";
 
-const DEFAULT_COLOR = new THREE.Color("#91a6b0");
-const JOINT_COLOR = new THREE.Color("#7f959f");
-const CORE_COLOR = new THREE.Color("#a2b4bb");
-const HOVER_COLOR = new THREE.Color("#65d6b6");
-const SELECTED_COLOR = new THREE.Color("#ff7b55");
+const SELECTED_COLOR = new THREE.Color("#65d6b6");
+const DEFAULT_OPACITY = 0.24;
+const HOVER_OPACITY = 0.38;
 const FULLY_ZOOMED_OUT_DISTANCE = 17;
 
 function BodyMap3D({ onSelect, selectedPart }) {
   const mountRef = useRef(null);
   const controlsRef = useRef(null);
+  const syncSelectionRef = useRef(null);
   const [webglError, setWebglError] = useState("");
 
   useEffect(() => {
@@ -21,6 +20,7 @@ function BodyMap3D({ onSelect, selectedPart }) {
     let renderer;
     let animationFrame;
     let resizeObserver;
+    let themeObserver;
     let controls;
 
     try {
@@ -31,8 +31,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.domElement.setAttribute("aria-hidden", "true");
       mount.appendChild(renderer.domElement);
 
@@ -54,15 +52,13 @@ function BodyMap3D({ onSelect, selectedPart }) {
       controls.saveState();
       controlsRef.current = controls;
 
-      scene.add(new THREE.HemisphereLight(0xe9fbff, 0x26323a, 2.4));
+      scene.add(new THREE.HemisphereLight(0xf1fbff, 0x40545b, 2));
 
-      const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
       keyLight.position.set(4, 7, 7);
-      keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(1024, 1024);
       scene.add(keyLight);
 
-      const rimLight = new THREE.DirectionalLight(0x66d8bd, 2.1);
+      const rimLight = new THREE.DirectionalLight(0xd0fff0, 1.5);
       rimLight.position.set(-5, 2, -5);
       scene.add(rimLight);
 
@@ -71,6 +67,14 @@ function BodyMap3D({ onSelect, selectedPart }) {
       scene.add(body);
 
       const selectableMeshes = [];
+      const defaultColor = new THREE.Color();
+      const hoverColor = new THREE.Color();
+      const readThemeColors = () => {
+        const color = getComputedStyle(mount).getPropertyValue("--body-map-model-color").trim();
+        defaultColor.set(color || "#d6e9ed");
+        hoverColor.copy(defaultColor).lerp(SELECTED_COLOR, 0.35);
+      };
+      readThemeColors();
 
       const addPart = ({
         name,
@@ -80,25 +84,25 @@ function BodyMap3D({ onSelect, selectedPart }) {
         position,
         rotation = [0, 0, 0],
         scale = [1, 1, 1],
-        color = DEFAULT_COLOR,
       }) => {
         const material = new THREE.MeshStandardMaterial({
-          color: color.clone(),
+          color: defaultColor.clone(),
           emissive: 0x000000,
-          roughness: 0.62,
-          metalness: 0.04,
+          roughness: 0.38,
+          metalness: 0.08,
+          transparent: true,
+          opacity: DEFAULT_OPACITY,
+          // Transparent parts must not hide the surfaces behind them.
+          depthWrite: false,
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(...position);
         mesh.rotation.set(...rotation);
         mesh.scale.set(...scale);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
         mesh.userData = {
           name,
           frontPart,
           backPart,
-          baseColor: color.clone(),
         };
         body.add(mesh);
         selectableMeshes.push(mesh);
@@ -112,7 +116,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
         geometry: new THREE.SphereGeometry(0.52, 30, 22),
         position: [0, 3.24, 0],
         scale: [0.84, 1.04, 0.86],
-        color: CORE_COLOR,
       });
       addPart({
         name: "Neck",
@@ -120,7 +123,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
         backPart: "Back of neck",
         geometry: new THREE.CylinderGeometry(0.2, 0.23, 0.42, 20),
         position: [0, 2.68, 0],
-        color: JOINT_COLOR,
       });
       addPart({
         name: "Torso",
@@ -129,7 +131,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
         geometry: new THREE.CapsuleGeometry(0.7, 0.72, 10, 24),
         position: [0, 1.62, 0],
         scale: [1.13, 1, 0.66],
-        color: CORE_COLOR,
       });
       addPart({
         name: "Abdomen",
@@ -138,7 +139,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
         geometry: new THREE.CapsuleGeometry(0.5, 0.35, 8, 22),
         position: [0, 0.46, 0],
         scale: [1.05, 1, 0.75],
-        color: DEFAULT_COLOR,
       });
       addPart({
         name: "Pelvis",
@@ -147,7 +147,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
         geometry: new THREE.CapsuleGeometry(0.54, 0.22, 8, 22),
         position: [0, -0.35, 0],
         scale: [1.18, 0.9, 0.82],
-        color: CORE_COLOR,
       });
 
       const addArm = (side, direction) => {
@@ -157,7 +156,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
           geometry: new THREE.SphereGeometry(0.36, 22, 16),
           position: [x * 0.98, 2.1, 0],
           scale: [1.08, 0.98, 1],
-          color: JOINT_COLOR,
         });
         addPart({
           name: `${side} upper arm`,
@@ -171,7 +169,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
           name: `${side} elbow`,
           geometry: new THREE.SphereGeometry(0.25, 20, 14),
           position: [x * 2.38, 2.1, 0],
-          color: JOINT_COLOR,
         });
         addPart({
           name: `${side} forearm`,
@@ -185,7 +182,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
           position: [x * 3.66, 2.1, 0],
           rotation: [0, 0, Math.PI / 2],
           scale: [0.82, 1.08, 0.7],
-          color: CORE_COLOR,
         });
       };
 
@@ -199,7 +195,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
           name: `${side} hip`,
           geometry: new THREE.SphereGeometry(0.34, 22, 16),
           position: [x, -0.82, 0],
-          color: JOINT_COLOR,
         });
         addPart({
           name: `${side} thigh`,
@@ -214,7 +209,6 @@ function BodyMap3D({ onSelect, selectedPart }) {
           geometry: new THREE.SphereGeometry(0.29, 22, 16),
           position: [x, -2.43, 0],
           scale: [1, 1.05, 0.9],
-          color: JOINT_COLOR,
         });
         addPart({
           name: `${side} lower leg`,
@@ -230,21 +224,11 @@ function BodyMap3D({ onSelect, selectedPart }) {
           position: [x, -3.9, 0.2],
           rotation: [Math.PI / 2, 0, 0],
           scale: [0.92, 1, 0.75],
-          color: CORE_COLOR,
         });
       };
 
       addLeg("Left", 1);
       addLeg("Right", -1);
-
-      const shadow = new THREE.Mesh(
-        new THREE.CircleGeometry(2.15, 48),
-        new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.25 })
-      );
-      shadow.rotation.x = -Math.PI / 2;
-      shadow.position.y = -4.16;
-      shadow.receiveShadow = true;
-      scene.add(shadow);
 
       const raycaster = new THREE.Raycaster();
       const pointer = new THREE.Vector2();
@@ -254,17 +238,51 @@ function BodyMap3D({ onSelect, selectedPart }) {
 
       const paintMesh = (mesh, state) => {
         if (!mesh) return;
+        const isSelected = state === "selected";
+        const isHovered = state === "hover";
+        const material = mesh.material;
+        const transparent = !isSelected;
+        if (material.transparent !== transparent) {
+          material.transparent = transparent;
+          material.needsUpdate = true;
+        }
+        material.opacity = isSelected ? 1 : isHovered ? HOVER_OPACITY : DEFAULT_OPACITY;
+        material.depthWrite = isSelected;
         if (state === "selected") {
-          mesh.material.color.copy(SELECTED_COLOR);
-          mesh.material.emissive.set("#45180c");
+          material.color.copy(SELECTED_COLOR);
+          material.emissive.set("#08382b");
         } else if (state === "hover") {
-          mesh.material.color.copy(HOVER_COLOR);
-          mesh.material.emissive.set("#0b3529");
+          material.color.copy(hoverColor);
+          material.emissive.set("#0b3529");
         } else {
-          mesh.material.color.copy(mesh.userData.baseColor);
-          mesh.material.emissive.set(0x000000);
+          material.color.copy(defaultColor);
+          material.emissive.set(0x000000);
         }
       };
+
+      const repaintMeshes = () => {
+        for (const mesh of selectableMeshes) {
+          paintMesh(mesh, mesh === selectedMesh ? "selected" : mesh === hoveredMesh ? "hover" : "default");
+        }
+      };
+
+      // Restore the solid selection when the drawer reopens, and keep it in
+      // sync with selection changes from the parent without resetting the view.
+      syncSelectionRef.current = (part) => {
+        selectedMesh = selectableMeshes.find((mesh) => (
+          mesh.userData.frontPart === part || mesh.userData.backPart === part
+        )) || null;
+        repaintMeshes();
+      };
+
+      themeObserver = new MutationObserver(() => {
+        readThemeColors();
+        repaintMeshes();
+      });
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      });
 
       const getIntersection = (event) => {
         const rect = renderer.domElement.getBoundingClientRect();
@@ -360,6 +378,9 @@ function BodyMap3D({ onSelect, selectedPart }) {
         const width = Math.max(mount.clientWidth, 1);
         const height = Math.max(mount.clientHeight, 1);
         camera.aspect = width / height;
+        // Keep the outstretched hands in frame at the default zoom on phones.
+        const fittedFov = 2 * Math.atan(4.4 / (FULLY_ZOOMED_OUT_DISTANCE * camera.aspect));
+        camera.fov = Math.max(40, THREE.MathUtils.radToDeg(fittedFov));
         camera.updateProjectionMatrix();
         renderer.setSize(width, height, false);
       };
@@ -378,6 +399,7 @@ function BodyMap3D({ onSelect, selectedPart }) {
       return () => {
         window.cancelAnimationFrame(animationFrame);
         resizeObserver?.disconnect();
+        themeObserver?.disconnect();
         renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
         renderer.domElement.removeEventListener("pointermove", handlePointerMove);
         renderer.domElement.removeEventListener("pointerup", handlePointerUp);
@@ -386,6 +408,7 @@ function BodyMap3D({ onSelect, selectedPart }) {
         renderer.domElement.removeEventListener("contextmenu", preventContextMenu);
         controls.dispose();
         controlsRef.current = null;
+        syncSelectionRef.current = null;
         scene.traverse((object) => {
           object.geometry?.dispose?.();
           if (Array.isArray(object.material)) {
@@ -399,8 +422,12 @@ function BodyMap3D({ onSelect, selectedPart }) {
       };
     } catch (error) {
       console.error("Unable to initialize the 3D body map:", error);
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
+      themeObserver?.disconnect();
       controls?.dispose();
       controlsRef.current = null;
+      syncSelectionRef.current = null;
       renderer?.dispose();
       renderer?.domElement?.remove();
       setWebglError("The interactive 3D view is unavailable in this browser.");
@@ -408,13 +435,17 @@ function BodyMap3D({ onSelect, selectedPart }) {
     }
   }, [onSelect]);
 
+  useEffect(() => {
+    syncSelectionRef.current?.(selectedPart);
+  }, [selectedPart, onSelect]);
+
   return (
     <div className="body-map-panel">
       <div className="body-map-toolbar">
         <div>
-          <div className="body-map-eyebrow">3D body picker</div>
+          <div className="body-map-eyebrow">Body map</div>
           <div className={`body-map-selection ${selectedPart ? "has-selection" : ""}`} aria-live="polite">
-            {selectedPart ? `Selected: ${selectedPart}` : "Click the area you want help with"}
+            {selectedPart || "Select an area to focus on"}
           </div>
         </div>
         <button
@@ -436,9 +467,12 @@ function BodyMap3D({ onSelect, selectedPart }) {
       </div>
 
       <div className="body-map-controls" aria-hidden="true">
-        <span><i className="control-dot click" />Click to select</span>
-        <span><i className="control-dot drag" />Right-drag to move around</span>
-        <span><i className="control-dot zoom" />Scroll to zoom</span>
+        <span className="body-map-mouse-hint"><i className="control-dot click" />Click to select</span>
+        <span className="body-map-mouse-hint"><i className="control-dot drag" />Right-drag to rotate</span>
+        <span className="body-map-mouse-hint"><i className="control-dot zoom" />Scroll to zoom</span>
+        <span className="body-map-touch-hint">Tap to select</span>
+        <span className="body-map-touch-hint">Drag to rotate</span>
+        <span className="body-map-touch-hint">Pinch to zoom</span>
       </div>
     </div>
   );
