@@ -10,6 +10,14 @@ export function createBodyMapOutline(renderer, scene, camera) {
   });
   const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const depthMaterial = new THREE.MeshBasicMaterial({ colorWrite: false });
+  const fillMaterial = new THREE.MeshStandardMaterial({
+    color: "#d6e9ed",
+    roughness: 0.55,
+    metalness: 0.04,
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+  });
   const outlineMaterial = new THREE.ShaderMaterial({
     uniforms: {
       silhouette: { value: mask.texture },
@@ -72,6 +80,10 @@ export function createBodyMapOutline(renderer, scene, camera) {
         scene.overrideMaterial = depthMaterial;
         renderer.render(scene, camera);
         renderer.autoClear = false;
+        // Shade only the nearest surface using the depth pass above. This adds
+        // depth cues while keeping overlapping joints from stacking opacity.
+        scene.overrideMaterial = fillMaterial;
+        renderer.render(scene, camera);
         scene.overrideMaterial = null;
         renderer.render(scene, camera);
         renderer.render(outlineScene, outlineCamera);
@@ -85,6 +97,7 @@ export function createBodyMapOutline(renderer, scene, camera) {
       mask.dispose();
       maskMaterial.dispose();
       depthMaterial.dispose();
+      fillMaterial.dispose();
       outlineMaterial.dispose();
       quad.geometry.dispose();
     },
