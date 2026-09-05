@@ -46,7 +46,6 @@
   --body-map-toolbar: rgba(8, 13, 17, 0.78);
   --body-map-surface: rgba(16, 30, 34, 0.12);
   --body-map-selection: #b4f5df;
-  --body-map-model-color: #d6e9ed;
 }
 
 [data-theme="light"] {
@@ -93,7 +92,6 @@
   --body-map-toolbar: rgba(255, 255, 255, 0.8);
   --body-map-surface: rgba(255, 255, 255, 0.12);
   --body-map-selection: #174f40;
-  --body-map-model-color: #45676b;
 }
 
 body {
