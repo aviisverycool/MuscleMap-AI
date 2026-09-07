@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from models import ChatRequest, ChatResponse, TitleRequest, TitleResponse
+from account_preferences import use_preferences
 from input import (
     API_KEY,
     PROVIDER,
@@ -25,7 +26,7 @@ from security import (
     get_current_user,
     scoped_conversation_id,
 )
-from supabase_store import delete_auth_user, delete_user_data
+from supabase_store import delete_auth_user, delete_user_data, memory_generation_is_current, reset_user_memory
 import uvicorn
 
 
@@ -156,10 +157,18 @@ def root():
 def chat(req: ChatRequest, user: AuthenticatedUser = Depends(get_current_user)):
     enforce_rate_limit(user.id, "chat-minute", limit=12, window_seconds=60)
     enforce_rate_limit(user.id, "chat-hour", limit=120, window_seconds=3600)
-    session_id = scoped_conversation_id(user.id, str(req.session_id))
+    session_id = scoped_conversation_id(user.id, str(req.session_id), user.memory_generation)
     try:
-        response = generate_response(req.message, session_id, req.body_part)
+        with use_preferences(user.preferences):
+            response = generate_response(req.message, session_id, req.body_part)
+        if user.preferences.memory_enabled and not memory_generation_is_current(user.id, user.memory_generation):
+            # A reset on another device may finish while the model is running.
+            # Remove any late writes to the retired namespace before returning.
+            delete_session_memory(session_id)
+            raise HTTPException(status_code=409, detail="AI memory was cleared while this reply was being generated. Please send your message again.")
         return ChatResponse(message=response)
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Chat generation failed")
         raise HTTPException(status_code=500, detail="Unable to generate a response")
@@ -171,13 +180,26 @@ def delete_chat_memory(
     user: AuthenticatedUser = Depends(get_current_user),
 ):
     enforce_rate_limit(user.id, "delete-chat-minute", limit=60, window_seconds=60)
-    scoped_session_id = scoped_conversation_id(user.id, str(session_id))
+    scoped_session_id = scoped_conversation_id(user.id, str(session_id), user.memory_generation)
     try:
         delete_session_memory(scoped_session_id)
         return {"deleted": True}
     except Exception:
         logger.exception("Conversation memory deletion failed")
         raise HTTPException(status_code=500, detail="Unable to delete conversation memory")
+
+
+@app.delete("/api/memory")
+def clear_ai_memory(user: AuthenticatedUser = Depends(get_current_user)):
+    enforce_rate_limit(user.id, "clear-memory", limit=6, window_seconds=3600)
+    try:
+        reset_user_memory(user.id)
+        return {"cleared": True}
+    except RuntimeError:
+        logger.exception("AI memory reset failed")
+        raise HTTPException(status_code=503, detail="Could not finish clearing AI memory. Please try again.")
+    finally:
+        evict_user_memory(user.id)
 
 
 @app.post("/api/title", response_model=TitleResponse)

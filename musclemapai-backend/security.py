@@ -2,13 +2,14 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from account_preferences import AccountPreferences, memory_generation
 
 from supabase_store import (
     SERVICE_ROLE_ENABLED,
@@ -34,6 +35,8 @@ class AuthenticatedUser:
     id: str
     email: str | None = None
     last_sign_in_at: datetime | None = None
+    preferences: AccountPreferences = field(default_factory=AccountPreferences)
+    memory_generation: str | None = None
 
     def was_recently_authenticated(self, max_age_minutes=5) -> bool:
         if self.last_sign_in_at is None:
@@ -113,12 +116,15 @@ def get_current_user(
         id=user_id,
         email=payload.get("email"),
         last_sign_in_at=_parse_supabase_datetime(payload.get("last_sign_in_at")),
+        preferences=AccountPreferences.from_metadata(payload.get("user_metadata")),
+        memory_generation=memory_generation(payload.get("app_metadata")),
     )
 
 
-def scoped_conversation_id(user_id: str, conversation_id: str) -> str:
+def scoped_conversation_id(user_id: str, conversation_id: str, generation: str | None = None) -> str:
     """Create a server-owned storage key that cannot cross user boundaries."""
-    return f"{user_id}:{conversation_id}"
+    prefix = f"{user_id}:{generation}" if generation else user_id
+    return f"{prefix}:{conversation_id}"
 
 
 _local_rate_limits: dict[str, tuple[float, int]] = {}

@@ -5,6 +5,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from account_preferences import current_preferences, preferences_prompt
 from supabase_store import (
     ENABLED as SUPABASE_MEMORY_ENABLED,
     clear_history,
@@ -323,6 +324,8 @@ def _write_local_memory():
 
 
 def _get_profile(session_id):
+    if not current_preferences.get().memory_enabled:
+        return _empty_profile()
     if session_id not in user_profiles:
         stored = load_profile(session_id)
         if stored is None:
@@ -340,6 +343,8 @@ def _get_profile(session_id):
 
 
 def save_memory(session_id="default"):
+    if not current_preferences.get().memory_enabled:
+        return
     profile = _get_profile(session_id)
     try:
         save_profile(session_id, profile)
@@ -396,6 +401,8 @@ def _injury_is_negated(text):
 
 
 def update_user_profile(text, session_id="default"):
+    if not current_preferences.get().memory_enabled:
+        return None
     profile = _get_profile(session_id)
     t = text.lower()
     changed = False
@@ -582,6 +589,8 @@ def validate_json_structure(data):
 
 # ====== MAIN LOGIC ======
 def _get_history(session_id):
+    if not current_preferences.get().memory_enabled:
+        return []
     if session_id not in chat_history:
         stored = load_history(session_id)
         history = stored if stored is not None else []
@@ -723,6 +732,8 @@ def _prune_history(history):
 
 
 def _load_state(session_id):
+    if not current_preferences.get().memory_enabled:
+        return
     if session_id in last_context or session_id in last_request:
         return
     state = load_state(session_id)
@@ -756,7 +767,7 @@ def _load_state(session_id):
 
 
 def _set_state(session_id, question, request):
-    if session_id in deleted_sessions:
+    if not current_preferences.get().memory_enabled or session_id in deleted_sessions:
         return
     last_context[session_id] = question
     last_request[session_id] = request
@@ -774,6 +785,8 @@ def _set_state(session_id, question, request):
 
 
 def _clear_state(session_id):
+    if not current_preferences.get().memory_enabled:
+        return
     last_context.pop(session_id, None)
     last_request.pop(session_id, None)
     last_state_expiry.pop(session_id, None)
@@ -848,7 +861,7 @@ def generate_response(text, session_id="default", body_part=None):
         return casual
 
     _load_state(session_id)
-    pending = last_context.get(session_id)
+    pending = last_context.get(session_id) if current_preferences.get().memory_enabled else None
     if pending and pending != DURATION_QUESTION:
         # Older versions treated every model-written closing question as a
         # mandatory follow-up. That made new topics inherit the prior request.
@@ -881,7 +894,7 @@ def generate_response(text, session_id="default", body_part=None):
     # conversation memory.
     injury_expires_at = update_user_profile(text, session_id)
 
-    if needs_duration(text):
+    if current_preferences.get().memory_enabled and needs_duration(text):
         _set_state(session_id, DURATION_QUESTION, text)
         return DURATION_QUESTION
 
@@ -957,6 +970,7 @@ Rules:
 
 {profile_block}
 {body_context_block}
+{preferences_prompt()}
 
 USER REQUEST (JSON):
 {json.dumps(_truncate_text(user_text, MAX_USER_TEXT_CHARS))}
@@ -1000,7 +1014,7 @@ def safe_model_call(prompt, session_id="default", retries=2, history_expires_at=
 
 
 def _record_exchange(prompt, response_text, session_id, history_expires_at=None):
-    if session_id in deleted_sessions:
+    if not current_preferences.get().memory_enabled or session_id in deleted_sessions:
         return
     history = _get_history(session_id)
     user_entry = {"role": "user", "content": _compact_user_prompt(prompt)}
@@ -1068,7 +1082,7 @@ def ask_model(
             "question": "",
         })
 
-    history = _get_history(session_id)
+    history = _get_history(session_id) if include_history else []
     messages = _build_model_messages(
         history,
         prompt,

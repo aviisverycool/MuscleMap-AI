@@ -69,6 +69,25 @@ fallbacks. You can override them at build time with
 - Keep Vercel Deployment Protection enabled until the SQL migration and all
   required environment variables are present.
 
+## Account personalization
+
+Account Settings includes metric/imperial units, available equipment (including
+bodyweight-only workouts), and AI memory controls. Preferences are stored in
+Supabase user metadata and applied by the backend to new messages on every device.
+No additional database migration is required for these preferences.
+
+Turning AI memory off skips remembered profiles, hidden conversation history and
+follow-up state, and does not save new AI context. Each message is handled on its
+own; the selected units and equipment still apply. Turning memory off does not
+delete previously stored context or the visible conversations.
+
+The authenticated `DELETE /api/memory` endpoint clears AI context across the
+account while preserving visible chats and account preferences. It requires the
+existing `SUPABASE_SERVICE_ROLE_KEY`. It rotates a server-managed memory generation
+before cleaning the three backend memory tables, preventing old worker caches from
+being reused. In-flight chat requests check the generation again and discard late
+writes when a reset occurred. Cleanup failures are reported so the user can retry.
+
 ## Run locally
 
 Copy the backend environment example and add your secret:

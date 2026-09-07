@@ -1,5 +1,7 @@
 import os
 import requests
+from uuid import uuid4
+from account_preferences import memory_generation
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -116,7 +118,7 @@ def _delete(table, column, value):
         return False
 
 
-def _delete_filter(table, column, expression):
+def _delete_filter(table, column, expression, *, optional=False):
     if not ENABLED:
         return False
     try:
@@ -126,6 +128,8 @@ def _delete_filter(table, column, expression):
             headers={**_headers(), "Prefer": "return=minimal"},
             timeout=10,
         )
+        if optional and _is_missing_schema_object(response):
+            return True
         if response.status_code not in (200, 204):
             print(f"Supabase delete error {response.status_code}: {response.text[:200]}")
             return False
@@ -190,6 +194,49 @@ def delete_user_data(user_id):
     ]
     if failed:
         raise RuntimeError(f"Could not delete user data from: {', '.join(failed)}")
+
+
+def memory_generation_is_current(user_id, generation):
+    if not SERVICE_ROLE_ENABLED:
+        return True
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers=_headers(),
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("Could not verify AI memory state")
+        payload = response.json()
+        return memory_generation(payload.get("app_metadata")) == generation
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        raise RuntimeError("Could not verify AI memory state") from exc
+
+
+def reset_user_memory(user_id):
+    """Invalidate every worker's old context before deleting durable AI memory."""
+    if not SERVICE_ROLE_ENABLED:
+        raise RuntimeError("Supabase service role is not configured")
+    generation = str(uuid4())
+    try:
+        response = requests.put(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers=_headers(),
+            json={"app_metadata": {"memory_generation": generation}},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Could not reset AI memory") from exc
+    if response.status_code != 200:
+        raise RuntimeError("Could not reset AI memory")
+
+    # Visible conversations, units, equipment and authentication stay intact.
+    failed = []
+    for table, column in ((PROFILE_TABLE, "id"), (HISTORY_TABLE, "session_id"), (STATE_TABLE, "session_id")):
+        if not _delete_filter(table, column, f"like.{user_id}:*", optional=True):
+            failed.append(table)
+    if failed:
+        raise RuntimeError("Memory was reset, but stored memory cleanup failed")
 
 
 def delete_auth_user(user_id):

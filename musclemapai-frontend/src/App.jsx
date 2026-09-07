@@ -6,10 +6,9 @@ import "./App.css";
 import bg from "./background-minimal.png";
 import BodyMap3D from "./components/BodyMap3D";
 import { normalizeMarkdownForRendering } from "./markdown";
+import PersonalizationSettings from "./components/PersonalizationSettings";
+import { authenticatedApiFetch, apiErrorMessage } from "./api";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? "/api" : "http://localhost:8000/api");
 const TITLE_STOP_WORDS = new Set([
   "a", "an", "and", "are", "about", "can", "could", "do", "for", "how",
   "i", "is", "me", "my", "of", "please", "tell", "the", "to", "what",
@@ -24,25 +23,6 @@ function fallbackConversationTitle(message) {
   return selected
     .map((word) => (word === word.toUpperCase() ? word : word[0].toUpperCase() + word.slice(1)))
     .join(" ");
-}
-
-async function authenticatedApiFetch(path, options = {}) {
-  const { data, error } = await supabase.auth.getSession();
-  const accessToken = data?.session?.access_token;
-  if (error || !accessToken) throw new Error("Your session has expired. Please sign in again.");
-
-  const headers = new Headers(options.headers || {});
-  headers.set("Authorization", `Bearer ${accessToken}`);
-  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-}
-
-async function apiErrorMessage(response, fallback) {
-  try {
-    const payload = await response.json();
-    return typeof payload?.detail === "string" ? payload.detail : fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 // ── Icons ──────────────────────────────────────────────
@@ -233,7 +213,7 @@ const EyeOffIcon = () => (
 );
 
 // ── Settings Modal ─────────────────────────────────────
-function SettingsModal({ user, onClose, theme, onToggleTheme }) {
+function SettingsModal({ user, onClose, theme, onToggleTheme, chatBusy }) {
   const [displayName, setDisplayName] = useState(
     user.user_metadata?.display_name || user.email?.split("@")[0] || ""
   );
@@ -350,6 +330,8 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
                 {saving ? "Saving…" : "Save Display Name"}
               </button>
             </section>
+
+            <PersonalizationSettings key={user.id} user={user} chatBusy={chatBusy} />
 
             <section className="settings-section">
               <h3 className="settings-section-title">Email</h3>
@@ -482,8 +464,10 @@ function SettingsModal({ user, onClose, theme, onToggleTheme }) {
 // ── Main App ───────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
+  const userId = user?.id;
   const [authData, setAuthData] = useState({ email: "", password: "" });
   const [authMode, setAuthMode] = useState("signin");
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem("musclemap-theme") || "dark";
@@ -594,20 +578,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       setConversationData({});
       setConversationOrder([]);
       setCurrentConversationId(null);
       return;
     }
 
+    let active = true;
     async function loadConversations() {
       const { data, error } = await supabase
         .from("conversations")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
+      if (!active) return;
       if (error) { console.error("Error loading conversations:", error); return; }
 
       const formatted = {};
@@ -626,7 +612,8 @@ export default function App() {
     }
 
     loadConversations();
-  }, [user]);
+    return () => { active = false; };
+  }, [userId]);
 
   const saveConversation = useCallback(async (convId, messages, title) => {
     if (!user || deletedConversationIdsRef.current.has(convId)) return;
@@ -892,6 +879,7 @@ export default function App() {
                     alert("Password must be at least 12 characters.");
                     return;
                   }
+                  if (!legalAccepted) return;
                   const { error } = await supabase.auth.signUp({
                     email: authData.email,
                     password: authData.password,
@@ -899,9 +887,25 @@ export default function App() {
                   });
                   if (error) alert(error.message);
                   else alert("Check your email to verify your account.");
+                  <label className="legal-consent">
+                    <input
+                      type="checkbox"
+                      checked={legalAccepted}
+                      onChange={(e) => setLegalAccepted(e.target.checked)}
+                    />
+                    <span>
+                      I agree to the <a href="/terms">Terms of Service</a> and
+                      <a href="/privacy"> Privacy Policy</a>.
+                    </span>
+                  </label>
                 } catch (err) {
                   console.error("Sign-up error:", err);
                   alert(err.message || String(err) || "Network error: failed to fetch");
+              <div className="auth-legal-links">
+                <a href="/privacy">Privacy Policy</a>
+                <span aria-hidden="true">·</span>
+                <a href="/terms">Terms of Service</a>
+              </div>
                 }
               }}>Sign Up</button>
               <button onClick={() => setAuthMode("signin")}>Already have an account? Sign In</button>
@@ -925,6 +929,7 @@ export default function App() {
       {/* Settings Modal */}
       {showSettings && (
         <SettingsModal
+          chatBusy={loading}
           user={user}
           onClose={() => setShowSettings(false)}
           theme={theme}
@@ -1020,6 +1025,11 @@ export default function App() {
           <button className="sidebar-btn" onClick={() => supabase.auth.signOut()}>
             <LogoutIcon /> Sign Out
           </button>
+          <div className="sidebar-legal-links">
+            <a href="/privacy">Privacy</a>
+            <span aria-hidden="true">·</span>
+            <a href="/terms">Terms</a>
+          </div>
         </div>
       </aside>
 
