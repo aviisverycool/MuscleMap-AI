@@ -468,7 +468,6 @@ export default function App() {
   const userId = user?.id;
   const [authData, setAuthData] = useState({ email: "", password: "" });
   const [authMode, setAuthMode] = useState("signin");
-  const [legalAccepted, setLegalAccepted] = useState(false);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem("musclemap-theme") || "dark";
@@ -874,13 +873,17 @@ export default function App() {
             </>
           ) : (
             <>
-              <button className="auth-primary" onClick={async () => {
+              <p className="legal-consent" id="signup-legal-notice">
+                By creating an account, you agree to our{" "}
+                <Link to="/terms">Terms of Service</Link> and{" "}
+                <Link to="/privacy">Privacy Policy</Link>.
+              </p>
+              <button className="auth-primary" aria-describedby="signup-legal-notice" onClick={async () => {
                 try {
                   if (authData.password.length < 12) {
                     alert("Password must be at least 12 characters.");
                     return;
                   }
-                  if (!legalAccepted) return;
                   const { error } = await supabase.auth.signUp({
                     email: authData.email,
                     password: authData.password,
@@ -888,25 +891,9 @@ export default function App() {
                   });
                   if (error) alert(error.message);
                   else alert("Check your email to verify your account.");
-                  <label className="legal-consent">
-                    <input
-                      type="checkbox"
-                      checked={legalAccepted}
-                      onChange={(e) => setLegalAccepted(e.target.checked)}
-                    />
-                    <span>
-                      I agree to the <Link to="/terms">Terms of Service</Link> and
-                      <Link to="/privacy"> Privacy Policy</Link>.
-                    </span>
-                  </label>
                 } catch (err) {
                   console.error("Sign-up error:", err);
                   alert(err.message || String(err) || "Network error: failed to fetch");
-              <div className="auth-legal-links">
-                <Link to="/privacy">Privacy Policy</Link>
-                <span aria-hidden="true">·</span>
-                <Link to="/terms">Terms of Service</Link>
-              </div>
                 }
               }}>Sign Up</button>
               <button onClick={() => setAuthMode("signin")}>Already have an account? Sign In</button>

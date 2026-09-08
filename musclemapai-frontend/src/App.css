@@ -1256,16 +1256,12 @@ body {
 .legal-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--modal-header-border); }
 .legal-footer a, .auth-legal-links a, .legal-consent a { color: var(--text-primary); }
 .auth-legal-links { margin-top: 2px; }
-.legal-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.auth-card .legal-consent {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
 }
-.legal-consent input { width: auto; margin-top: 3px; accent-color: #10a37f; }
 
 /* ── Mobile layout ── */
 @media (max-width: 760px) {
