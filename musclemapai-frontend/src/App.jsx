@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getAuthRedirectUrl, supabase } from "./supabase";
@@ -894,17 +895,17 @@ export default function App() {
                       onChange={(e) => setLegalAccepted(e.target.checked)}
                     />
                     <span>
-                      I agree to the <a href="/terms">Terms of Service</a> and
-                      <a href="/privacy"> Privacy Policy</a>.
+                      I agree to the <Link to="/terms">Terms of Service</Link> and
+                      <Link to="/privacy"> Privacy Policy</Link>.
                     </span>
                   </label>
                 } catch (err) {
                   console.error("Sign-up error:", err);
                   alert(err.message || String(err) || "Network error: failed to fetch");
               <div className="auth-legal-links">
-                <a href="/privacy">Privacy Policy</a>
+                <Link to="/privacy">Privacy Policy</Link>
                 <span aria-hidden="true">·</span>
-                <a href="/terms">Terms of Service</a>
+                <Link to="/terms">Terms of Service</Link>
               </div>
                 }
               }}>Sign Up</button>
@@ -1026,9 +1027,9 @@ export default function App() {
             <LogoutIcon /> Sign Out
           </button>
           <div className="sidebar-legal-links">
-            <a href="/privacy">Privacy</a>
+            <Link to="/privacy">Privacy</Link>
             <span aria-hidden="true">·</span>
-            <a href="/terms">Terms</a>
+            <Link to="/terms">Terms</Link>
           </div>
         </div>
       </aside>
