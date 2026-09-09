@@ -260,8 +260,8 @@ function SettingsModal({ user, onClose, theme, onToggleTheme, chatBusy }) {
       showFeedback("error", "Passwords don't match.");
       return;
     }
-    if (newPassword.length < 12) {
-      showFeedback("error", "Password must be at least 12 characters.");
+    if (newPassword.length < 8) {
+      showFeedback("error", "Password must be at least 8 characters.");
       return;
     }
     setSaving(true);
@@ -355,7 +355,7 @@ function SettingsModal({ user, onClose, theme, onToggleTheme, chatBusy }) {
             <section className="settings-section">
               <h3 className="settings-section-title">Password</h3>
               <div className="settings-field-label">New Password</div>
-              <p className="settings-field-hint">Must be at least 12 characters.</p>
+              <p className="settings-field-hint">Must be at least 8 characters.</p>
               <div className="pw-field-wrap">
                 <input
                   className="settings-input"
@@ -468,6 +468,11 @@ export default function App() {
   const userId = user?.id;
   const [authData, setAuthData] = useState({ email: "", password: "" });
   const [authMode, setAuthMode] = useState("signin");
+  const [authPending, setAuthPending] = useState(false);
+  const [authFeedback, setAuthFeedback] = useState(null);
+  const [confirmationEmail, setConfirmationEmail] = useState("");
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const authRequestRef = useRef(false);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem("musclemap-theme") || "dark";
@@ -833,6 +838,58 @@ export default function App() {
     }
   }
 
+  async function submitAuth(action) {
+    if (authRequestRef.current) return;
+    const email = action === "resend" ? confirmationEmail : authData.email.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthFeedback({ type: "error", message: "Enter a valid email address." });
+      return;
+    }
+    if (action === "signup" && authData.password.length < 8) {
+      setAuthFeedback({ type: "error", message: "Password must be at least 8 characters." });
+      return;
+    }
+    if (action === "resend" && Date.now() < resendAvailableAt) {
+      setAuthFeedback({ type: "error", message: "Please wait a minute before requesting another confirmation email." });
+      return;
+    }
+    authRequestRef.current = true;
+    setAuthPending(true);
+    setAuthFeedback(null);
+    try {
+      let result;
+      if (action === "resend") {
+        result = await supabase.auth.resend({
+          type: "signup", email, options: { emailRedirectTo: getAuthRedirectUrl() },
+        });
+      } else if (action === "signup") {
+        result = await supabase.auth.signUp({
+          email, password: authData.password,
+          options: { emailRedirectTo: getAuthRedirectUrl() },
+        });
+      } else {
+        result = await supabase.auth.signInWithPassword({ email, password: authData.password });
+      }
+      if (result.error) {
+        if (result.error.code === "email_not_confirmed") setConfirmationEmail(email);
+        throw result.error;
+      }
+      if (action !== "signin" && !result.data?.session) {
+        setConfirmationEmail(email);
+        setResendAvailableAt(Date.now() + 60000);
+        setAuthFeedback({
+          type: "success",
+          message: `Request accepted. If ${email} needs confirmation, check its inbox and spam folder for the link. If you already confirmed your account, sign in.`,
+        });
+      }
+    } catch (error) {
+      setAuthFeedback({ type: "error", message: error.message || "Could not connect. Please try again." });
+    } finally {
+      authRequestRef.current = false;
+      setAuthPending(false);
+    }
+  }
+
   // ── AUTH SCREEN ────────────────────────────────────────
   if (!user) {
     return (
@@ -844,13 +901,22 @@ export default function App() {
           <input
             type="email"
             placeholder="Email"
+            autoComplete="email"
+            disabled={authPending}
             value={authData.email}
-            onChange={(e) => setAuthData({ ...authData, email: e.target.value })}
+            onChange={(e) => {
+              setAuthData({ ...authData, email: e.target.value });
+              setConfirmationEmail("");
+              setAuthFeedback(null);
+            }}
             onKeyDown={(e) => e.key === "Enter" && document.querySelector(".auth-primary")?.click()}
           />
           <input
             type="password"
-            placeholder="Password"
+            placeholder={authMode === "signup" ? "Password (at least 8 characters)" : "Password"}
+            minLength={authMode === "signup" ? 8 : undefined}
+            autoComplete={authMode === "signup" ? "new-password" : "current-password"}
+            disabled={authPending}
             value={authData.password}
             onChange={(e) => setAuthData({ ...authData, password: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && document.querySelector(".auth-primary")?.click()}
@@ -858,18 +924,10 @@ export default function App() {
 
           {authMode === "signin" ? (
             <>
-              <button className="auth-primary" onClick={async () => {
-                try {
-                  const { error } = await supabase.auth.signInWithPassword({ email: authData.email, password: authData.password });
-                  if (error) {
-                    alert(error.message || "Sign-in failed");
-                  }
-                } catch (err) {
-                  console.error("Sign-in error:", err);
-                  alert(err.message || String(err) || "Network error: failed to fetch");
-                }
-              }}>Sign In</button>
-              <button onClick={() => setAuthMode("signup")}>Don't have an account? Sign Up</button>
+              <button className="auth-primary" disabled={authPending} onClick={() => submitAuth("signin")}>
+                {authPending ? "Please wait…" : "Sign In"}
+              </button>
+              <button disabled={authPending} onClick={() => { setAuthMode("signup"); setAuthFeedback(null); }}>Don't have an account? Sign Up</button>
             </>
           ) : (
             <>
@@ -878,26 +936,21 @@ export default function App() {
                 <Link to="/terms">Terms of Service</Link> and{" "}
                 <Link to="/privacy">Privacy Policy</Link>.
               </p>
-              <button className="auth-primary" aria-describedby="signup-legal-notice" onClick={async () => {
-                try {
-                  if (authData.password.length < 12) {
-                    alert("Password must be at least 12 characters.");
-                    return;
-                  }
-                  const { error } = await supabase.auth.signUp({
-                    email: authData.email,
-                    password: authData.password,
-                    options: { emailRedirectTo: getAuthRedirectUrl() },
-                  });
-                  if (error) alert(error.message);
-                  else alert("Check your email to verify your account.");
-                } catch (err) {
-                  console.error("Sign-up error:", err);
-                  alert(err.message || String(err) || "Network error: failed to fetch");
-                }
-              }}>Sign Up</button>
-              <button onClick={() => setAuthMode("signin")}>Already have an account? Sign In</button>
+              <button className="auth-primary" aria-describedby="signup-legal-notice" disabled={authPending} onClick={() => submitAuth("signup")}>
+                {authPending ? "Please wait…" : "Sign Up"}
+              </button>
+              <button disabled={authPending} onClick={() => { setAuthMode("signin"); setAuthFeedback(null); }}>Already have an account? Sign In</button>
             </>
+          )}
+          {authFeedback && (
+            <p className={`settings-feedback ${authFeedback.type}`} role={authFeedback.type === "error" ? "alert" : "status"}>
+              {authFeedback.message}
+            </p>
+          )}
+          {confirmationEmail && (
+            <button disabled={authPending} onClick={() => submitAuth("resend")}>
+              Resend confirmation email
+            </button>
           )}
         </div>
       </div>
