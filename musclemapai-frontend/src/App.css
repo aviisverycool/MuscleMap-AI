@@ -3,24 +3,24 @@
 
 /* ── Theme variables ── */
 :root, [data-theme="dark"] {
-  --bg-overlay: rgba(0, 0, 0, 0.45);
-  --chat-overlay: rgba(0, 0, 0, 0.35);
-  --topbar-overlay: rgba(0, 0, 0, 0.2);
+  --bg-overlay: rgba(0, 0, 0, 0.55);
+  --chat-overlay: rgba(0, 0, 0, 0.45);
+  --topbar-overlay: rgba(0, 0, 0, 0.25);
   --sidebar-border: rgba(255, 255, 255, 0.12);
   --text-primary: #f7f9fc;
   --text-secondary: #e0e5ed;
   --text-muted: rgba(255, 255, 255, 0.76);
   --text-dim: #c1c8d3;
   --text-on-accent: #ffffff;
-  --hover-bg: rgba(255, 255, 255, 0.12);
-  --active-bg: rgba(255, 255, 255, 0.2);
-  --input-bg: rgba(255, 255, 255, 0.15);
+  --hover-bg: rgba(255, 255, 255, 0.1);
+  --active-bg: rgba(255, 255, 255, 0.16);
+  --input-bg: rgba(255, 255, 255, 0.11);
   --input-border: rgba(255, 255, 255, 0.2);
   --input-border-focus: rgba(255, 255, 255, 0.4);
-  --user-bubble: rgba(255, 255, 255, 0.18);
+  --user-bubble: rgba(255, 255, 255, 0.14);
   --modal-overlay: rgba(0, 0, 0, 0.42);
   --modal-header-border: rgba(255, 255, 255, 0.08);
-  --tab-active-bg: rgba(255, 255, 255, 0.12);
+  --tab-active-bg: rgba(255, 255, 255, 0.1);
   --tab-active-color: #f7f9fc;
   --tab-color: #e0e5ed;
   --settings-input-bg: #141414;
@@ -34,7 +34,7 @@
   --preview-bg: #2a2a2a;
   --preview-line: #3f3f3f;
   --preview-bar: #10a37f;
-  --auth-bg: #212121;
+  --auth-bg: #191919;
   --scrollbar-thumb: rgba(255,255,255,0.2);
   --feedback-success-bg: rgba(16, 163, 127, 0.15);
   --feedback-success-border: rgba(16, 163, 127, 0.4);
