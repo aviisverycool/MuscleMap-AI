@@ -607,13 +607,12 @@ body {
   padding: 7px 11px;
   border: 1px solid var(--body-map-border);
   border-radius: 999px;
-  background: var(--body-map-toolbar);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
-  backdrop-filter: blur(10px);
 }
 
 .body-map-controls span { display: inline-flex; align-items: center; gap: 5px; }
