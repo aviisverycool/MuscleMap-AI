@@ -8,6 +8,6 @@
     "test": "npm --prefix musclemapai-frontend test"
   },
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   }
 }
