@@ -58,7 +58,7 @@ if GROQ_API_KEY:
         })
 elif CEREBRAS_API_KEY:
     # Preserve the previous behavior when Cerebras is the only configured
-    # primary provider.
+    # primary provider. 
     PROVIDERS.append({
         "name": "Cerebras",
         "url": CEREBRAS_URL,

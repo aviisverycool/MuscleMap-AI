@@ -9,6 +9,7 @@ import BodyMap3D from "./components/BodyMap3D";
 import { normalizeMarkdownForRendering } from "./markdown";
 import PersonalizationSettings from "./components/PersonalizationSettings";
 import { authenticatedApiFetch, apiErrorMessage } from "./api";
+import { DEMO_ACCOUNT_EMAIL, resolveAuthEmail } from "./auth";
 
 const TITLE_STOP_WORDS = new Set([
   "a", "an", "and", "are", "about", "can", "could", "do", "for", "how",
@@ -840,9 +841,15 @@ export default function App() {
 
   async function submitAuth(action) {
     if (authRequestRef.current) return;
-    const email = action === "resend" ? confirmationEmail : authData.email.trim();
+    const email = action === "resend"
+      ? confirmationEmail
+      : resolveAuthEmail(authData.email, action);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setAuthFeedback({ type: "error", message: "Enter a valid email address." });
+      return;
+    }
+    if (action === "signup" && email.toLowerCase() === DEMO_ACCOUNT_EMAIL) {
+      setAuthFeedback({ type: "error", message: "That email address is reserved for the judges demo account." });
       return;
     }
     if (action === "signup" && authData.password.length < 8) {
@@ -899,8 +906,8 @@ export default function App() {
           <p>{authMode === "signin" ? "Sign in to continue" : "Create your account"}</p>
 
           <input
-            type="email"
-            placeholder="Email"
+            type={authMode === "signin" ? "text" : "email"}
+            placeholder={authMode === "signin" ? "Email or demo" : "Email"}
             autoComplete="email"
             disabled={authPending}
             value={authData.email}
