@@ -9,7 +9,12 @@ import BodyMap3D from "./components/BodyMap3D";
 import { normalizeMarkdownForRendering } from "./markdown";
 import PersonalizationSettings from "./components/PersonalizationSettings";
 import { authenticatedApiFetch, apiErrorMessage } from "./api";
-import { DEMO_ACCOUNT_EMAIL, resolveAuthEmail } from "./auth";
+import {
+  DEMO_ACCOUNT_EMAIL,
+  isDemoAlias,
+  resolveAuthAction,
+  resolveAuthEmail,
+} from "./auth";
 
 const TITLE_STOP_WORDS = new Set([
   "a", "an", "and", "are", "about", "can", "could", "do", "for", "how",
@@ -841,22 +846,25 @@ export default function App() {
 
   async function submitAuth(action) {
     if (authRequestRef.current) return;
-    const email = action === "resend"
+    const authAction = action === "resend"
+      ? action
+      : resolveAuthAction(authData.email, action);
+    const email = authAction === "resend"
       ? confirmationEmail
-      : resolveAuthEmail(authData.email, action);
+      : resolveAuthEmail(authData.email, authAction);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setAuthFeedback({ type: "error", message: "Enter a valid email address." });
       return;
     }
-    if (action === "signup" && email.toLowerCase() === DEMO_ACCOUNT_EMAIL) {
+    if (authAction === "signup" && email.toLowerCase() === DEMO_ACCOUNT_EMAIL) {
       setAuthFeedback({ type: "error", message: "That email address is reserved for the judges demo account." });
       return;
     }
-    if (action === "signup" && authData.password.length < 8) {
+    if (authAction === "signup" && authData.password.length < 8) {
       setAuthFeedback({ type: "error", message: "Password must be at least 8 characters." });
       return;
     }
-    if (action === "resend" && Date.now() < resendAvailableAt) {
+    if (authAction === "resend" && Date.now() < resendAvailableAt) {
       setAuthFeedback({ type: "error", message: "Please wait a minute before requesting another confirmation email." });
       return;
     }
@@ -865,11 +873,11 @@ export default function App() {
     setAuthFeedback(null);
     try {
       let result;
-      if (action === "resend") {
+      if (authAction === "resend") {
         result = await supabase.auth.resend({
           type: "signup", email, options: { emailRedirectTo: getAuthRedirectUrl() },
         });
-      } else if (action === "signup") {
+      } else if (authAction === "signup") {
         result = await supabase.auth.signUp({
           email, password: authData.password,
           options: { emailRedirectTo: getAuthRedirectUrl() },
@@ -881,7 +889,7 @@ export default function App() {
         if (result.error.code === "email_not_confirmed") setConfirmationEmail(email);
         throw result.error;
       }
-      if (action !== "signin" && !result.data?.session) {
+      if (authAction !== "signin" && !result.data?.session) {
         setConfirmationEmail(email);
         setResendAvailableAt(Date.now() + 60000);
         setAuthFeedback({
@@ -906,7 +914,7 @@ export default function App() {
           <p>{authMode === "signin" ? "Sign in to continue" : "Create your account"}</p>
 
           <input
-            type={authMode === "signin" ? "text" : "email"}
+            type={authMode === "signin" || isDemoAlias(authData.email) ? "text" : "email"}
             placeholder={authMode === "signin" ? "Email or demo" : "Email"}
             autoComplete="email"
             disabled={authPending}
@@ -938,13 +946,20 @@ export default function App() {
             </>
           ) : (
             <>
-              <p className="legal-consent" id="signup-legal-notice">
-                By creating an account, you agree to our{" "}
-                <Link to="/terms">Terms of Service</Link> and{" "}
-                <Link to="/privacy">Privacy Policy</Link>.
-              </p>
-              <button className="auth-primary" aria-describedby="signup-legal-notice" disabled={authPending} onClick={() => submitAuth("signup")}>
-                {authPending ? "Please wait…" : "Sign Up"}
+              {!isDemoAlias(authData.email) && (
+                <p className="legal-consent" id="signup-legal-notice">
+                  By creating an account, you agree to our{" "}
+                  <Link to="/terms">Terms of Service</Link> and{" "}
+                  <Link to="/privacy">Privacy Policy</Link>.
+                </p>
+              )}
+              <button
+                className="auth-primary"
+                aria-describedby={isDemoAlias(authData.email) ? undefined : "signup-legal-notice"}
+                disabled={authPending}
+                onClick={() => submitAuth("signup")}
+              >
+                {authPending ? "Please wait…" : isDemoAlias(authData.email) ? "Sign In" : "Sign Up"}
               </button>
               <button disabled={authPending} onClick={() => { setAuthMode("signin"); setAuthFeedback(null); }}>Already have an account? Sign In</button>
             </>
