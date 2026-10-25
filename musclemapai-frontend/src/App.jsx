@@ -855,7 +855,7 @@ export default function App() {
     ) {
       setAuthFeedback({
         type: "error",
-        message: "Demo sign-in is not configured. Set VITE_DEMO_ACCOUNT_EMAIL to an email address you control, then create and confirm that user in Supabase.",
+        message: "Demo sign-in is not configured in this build. Set VITE_DEMO_ACCOUNT_EMAIL to the confirmed Supabase email, or enter that real email instead of the demo alias.",
       });
       return;
     }
@@ -877,20 +877,31 @@ export default function App() {
     authRequestRef.current = true;
     setAuthPending(true);
     setAuthFeedback(null);
+    let authTimeoutId;
     try {
       let result;
+      let authRequest;
       if (authAction === "resend") {
-        result = await supabase.auth.resend({
+        authRequest = supabase.auth.resend({
           type: "signup", email, options: { emailRedirectTo: getAuthRedirectUrl() },
         });
       } else if (authAction === "signup") {
-        result = await supabase.auth.signUp({
+        authRequest = supabase.auth.signUp({
           email, password: authData.password,
           options: { emailRedirectTo: getAuthRedirectUrl() },
         });
       } else {
-        result = await supabase.auth.signInWithPassword({ email, password: authData.password });
+        authRequest = supabase.auth.signInWithPassword({ email, password: authData.password });
       }
+      result = await Promise.race([
+        authRequest,
+        new Promise((_, reject) => {
+          authTimeoutId = window.setTimeout(
+            () => reject(new Error("Authentication timed out. Check your connection and try again.")),
+            15000
+          );
+        }),
+      ]);
       if (result.error) {
         if (result.error.code === "email_not_confirmed") setConfirmationEmail(email);
         throw result.error;
@@ -906,6 +917,7 @@ export default function App() {
     } catch (error) {
       setAuthFeedback({ type: "error", message: error.message || "Could not connect. Please try again." });
     } finally {
+      if (authTimeoutId !== undefined) window.clearTimeout(authTimeoutId);
       authRequestRef.current = false;
       setAuthPending(false);
     }

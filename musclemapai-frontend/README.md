@@ -11,6 +11,8 @@ The frontend is a React application built with Vite.
 Copy `.env.example` to `.env.local` only when local environment overrides are
 needed. Variables exposed to the browser must use the `VITE_` prefix. Never put
 a Supabase service-role key or an AI-provider key in a frontend variable.
+For the demo login, set `VITE_DEMO_ACCOUNT_EMAIL` in `.env.local` to the
+confirmed Supabase email that `demo` should map to.
 
 ## Judges demo account
 
