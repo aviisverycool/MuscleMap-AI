@@ -11,18 +11,17 @@ The frontend is a React application built with Vite.
 Copy `.env.example` to `.env.local` only when local environment overrides are
 needed. Variables exposed to the browser must use the `VITE_` prefix. Never put
 a Supabase service-role key or an AI-provider key in a frontend variable.
-For the demo login, set `VITE_DEMO_ACCOUNT_EMAIL` in `.env.local` to the
-confirmed Supabase email that `demo` should map to.
+For the demo login, `VITE_DEMO_ACCOUNT_EMAIL` is optional. It defaults to the
+confirmed Supabase email that `demo` maps to; set it only to override that
+address.
 
 ## Judges demo account
 
-Set the frontend environment variable `VITE_DEMO_ACCOUNT_EMAIL` to a valid
-email address you control. Do not use a placeholder domain such as `.example`;
-it is reserved and cannot receive confirmation emails. Create a Supabase user
-with that same email, set its password to the demo password, and confirm the
-account. In the deployed frontend, set the variable in the hosting provider and
-redeploy. Judges can then enter `demo` and the demo password; the app maps
-`demo` to the configured address and signs in through Supabase normally.
+The deployed app maps the username `demo` to a confirmed Supabase account, so
+judges can sign in with `demo` and the shared demo password without any extra
+configuration. To point the alias at a different account, set the frontend
+environment variable `VITE_DEMO_ACCOUNT_EMAIL` in the hosting provider and
+redeploy. The app signs in through Supabase normally.
 
 Keep the demo account separate from personal data; anyone with the shared
 credentials can use it.

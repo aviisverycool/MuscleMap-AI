@@ -2,9 +2,16 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export const DEMO_ACCOUNT_EMAIL = (
+const configuredDemoEmail = (
   import.meta.env.VITE_DEMO_ACCOUNT_EMAIL || ""
 ).trim().toLowerCase();
+
+// The shared CAC judges account. This is a real, confirmed Supabase user, so
+// the `demo` alias keeps working even if the hosting environment forgets to
+// set VITE_DEMO_ACCOUNT_EMAIL. The value is not a secret; the password lives
+// in the README.
+export const DEMO_ACCOUNT_EMAIL =
+  configuredDemoEmail || "demo@musclemap-ai.example";
 
 export function isDemoAlias(email) {
   return normalizeText(email).toLowerCase() === "demo";

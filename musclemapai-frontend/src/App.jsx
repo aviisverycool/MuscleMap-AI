@@ -10,6 +10,7 @@ import { normalizeMarkdownForRendering } from "./markdown";
 import PersonalizationSettings from "./components/PersonalizationSettings";
 import { authenticatedApiFetch, apiErrorMessage } from "./api";
 import {
+  DEMO_ACCOUNT_EMAIL,
   isDemoAccountIdentifier,
   resolveAuthAction,
   resolveAuthEmail,
