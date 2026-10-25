@@ -13,12 +13,24 @@ export const EQUIPMENT_OPTIONS = [
 const equipmentIds = new Set(EQUIPMENT_OPTIONS.map(([id]) => id));
 
 export function getAccountPreferences(metadata) {
-  const raw = metadata?.fitness_preferences || {};
+  const raw = metadata?.fitness_preferences && typeof metadata.fitness_preferences === "object"
+    ? metadata.fitness_preferences
+    : {};
+  const equipment = Array.isArray(raw.equipment)
+    ? raw.equipment
+      .filter((id) => typeof id === "string")
+      .map((id) => id.trim().toLowerCase())
+      .filter((id) => equipmentIds.has(id))
+    : null;
+  const memoryEnabled = typeof raw.memory_enabled === "string"
+    ? !["false", "0", "no"].includes(raw.memory_enabled.trim().toLowerCase())
+    : raw.memory_enabled !== false;
+
   return {
-    units: raw.units === "imperial" ? "imperial" : "metric",
-    equipment: Array.isArray(raw.equipment)
-      ? [...new Set(raw.equipment.filter((id) => equipmentIds.has(id)))]
-      : null,
-    memory_enabled: raw.memory_enabled !== false,
+    units: typeof raw.units === "string" && raw.units.trim().toLowerCase() === "imperial"
+      ? "imperial"
+      : "metric",
+    equipment: equipment === null ? null : [...new Set(equipment)],
+    memory_enabled: memoryEnabled,
   };
 }

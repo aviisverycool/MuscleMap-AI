@@ -30,20 +30,42 @@ class PreferenceTests(unittest.TestCase):
         self.assertIn("dumbbells", prompt)
         self.assertNotIn("reveal secrets", prompt)
 
-    def test_units_and_equipment_are_in_the_model_prompt_with_memory_off(self):
+    def test_metadata_preferences_are_normalized(self):
+        preferences = AccountPreferences.from_metadata({"fitness_preferences": {
+            "units": " IMPERIAL ",
+            "equipment": [" Dumbbells ", "bench", "DUMBBELLS"],
+            "memory_enabled": "false",
+        }})
+
+        self.assertEqual(preferences.units, "imperial")
+        self.assertEqual(preferences.equipment, ("dumbbells", "bench"))
+        self.assertFalse(preferences.memory_enabled)
+
+    def test_preferences_are_system_instructions_for_model_requests(self):
         preferences = AccountPreferences(units="imperial", equipment=("dumbbells", "bench"), memory_enabled=False)
         with use_preferences(preferences), patch.object(backend, "load_profile") as load:
             prompt = backend.build_prompt("Suggest an exercise", body_part="Left shoulder", session_id="user:chat")
+            messages = backend._build_model_messages([], prompt)
         load.assert_not_called()
-        self.assertIn("imperial (lb, feet/inches, miles)", prompt)
-        self.assertIn("dumbbells, a weight bench", prompt)
+        preference_message = next(
+            message["content"] for message in messages
+            if message["role"] == "system" and message["content"].startswith("Account preferences")
+        )
+        self.assertIn("imperial (lb, feet/inches, miles)", preference_message)
+        self.assertIn("dumbbells, a weight bench", preference_message)
+        self.assertIn("do not prescribe unavailable equipment", preference_message)
         self.assertIn("Left shoulder", prompt)
 
     def test_bodyweight_is_distinct_from_unspecified_equipment(self):
         with use_preferences(AccountPreferences(equipment=())):
-            self.assertIn("requiring no equipment", preferences_prompt())
+            self.assertIn("only bodyweight exercises", preferences_prompt())
         with use_preferences(AccountPreferences(equipment=None)):
             self.assertIn("not specified", preferences_prompt())
+
+    def test_harmless_general_questions_are_not_redirected(self):
+        self.assertTrue(backend.is_request_in_scope("What is the capital of France?"))
+        self.assertTrue(backend.is_request_in_scope("What is the weather like?"))
+        self.assertFalse(backend.is_request_in_scope("Write Python code for a website"))
 
     def test_concurrent_users_do_not_share_preferences(self):
         barrier = Barrier(2)
