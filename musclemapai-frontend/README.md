@@ -14,13 +14,13 @@ a Supabase service-role key or an AI-provider key in a frontend variable.
 
 ## Judges demo account
 
-On the sign-in screen, judges can enter `demo` as the email and the demo
-password provided with the submission. The app resolves `demo` to
-`demo@musclemap-ai.example` and signs in through Supabase like a regular user.
+Set the frontend environment variable `VITE_DEMO_ACCOUNT_EMAIL` to a valid
+email address you control. Do not use a placeholder domain such as `.example`;
+it is reserved and cannot receive confirmation emails. Create a Supabase user
+with that same email, set its password to the demo password, and confirm the
+account. In the deployed frontend, set the variable in the hosting provider and
+redeploy. Judges can then enter `demo` and the demo password; the app maps
+`demo` to the configured address and signs in through Supabase normally.
 
-Before deploying, create that user in the Supabase Dashboard under
-**Authentication → Users → Add user**, set its password to the demo password,
-and confirm the user's email. The `.example` domain is reserved and does not
-receive email, so the account must be created as confirmed. Keep this account
-separate from personal data; anyone with the shared demo credentials can use
-it.
+Keep the demo account separate from personal data; anyone with the shared
+credentials can use it.

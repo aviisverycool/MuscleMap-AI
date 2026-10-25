@@ -10,8 +10,7 @@ import { normalizeMarkdownForRendering } from "./markdown";
 import PersonalizationSettings from "./components/PersonalizationSettings";
 import { authenticatedApiFetch, apiErrorMessage } from "./api";
 import {
-  DEMO_ACCOUNT_EMAIL,
-  isDemoAlias,
+  isDemoAccountIdentifier,
   resolveAuthAction,
   resolveAuthEmail,
 } from "./auth";
@@ -849,15 +848,22 @@ export default function App() {
     const authAction = action === "resend"
       ? action
       : resolveAuthAction(authData.email, action);
+    if (
+      authAction !== "resend" &&
+      isDemoAccountIdentifier(authData.email) &&
+      !DEMO_ACCOUNT_EMAIL
+    ) {
+      setAuthFeedback({
+        type: "error",
+        message: "Demo sign-in is not configured. Set VITE_DEMO_ACCOUNT_EMAIL to an email address you control, then create and confirm that user in Supabase.",
+      });
+      return;
+    }
     const email = authAction === "resend"
       ? confirmationEmail
       : resolveAuthEmail(authData.email, authAction);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setAuthFeedback({ type: "error", message: "Enter a valid email address." });
-      return;
-    }
-    if (authAction === "signup" && email.toLowerCase() === DEMO_ACCOUNT_EMAIL) {
-      setAuthFeedback({ type: "error", message: "That email address is reserved for the judges demo account." });
       return;
     }
     if (authAction === "signup" && authData.password.length < 8) {
@@ -914,7 +920,7 @@ export default function App() {
           <p>{authMode === "signin" ? "Sign in to continue" : "Create your account"}</p>
 
           <input
-            type={authMode === "signin" || isDemoAlias(authData.email) ? "text" : "email"}
+            type={authMode === "signin" || isDemoAccountIdentifier(authData.email) ? "text" : "email"}
             placeholder={authMode === "signin" ? "Email or demo" : "Email"}
             autoComplete="email"
             disabled={authPending}
@@ -946,7 +952,7 @@ export default function App() {
             </>
           ) : (
             <>
-              {!isDemoAlias(authData.email) && (
+              {!isDemoAccountIdentifier(authData.email) && (
                 <p className="legal-consent" id="signup-legal-notice">
                   By creating an account, you agree to our{" "}
                   <Link to="/terms">Terms of Service</Link> and{" "}
@@ -955,11 +961,11 @@ export default function App() {
               )}
               <button
                 className="auth-primary"
-                aria-describedby={isDemoAlias(authData.email) ? undefined : "signup-legal-notice"}
+                aria-describedby={isDemoAccountIdentifier(authData.email) ? undefined : "signup-legal-notice"}
                 disabled={authPending}
                 onClick={() => submitAuth("signup")}
               >
-                {authPending ? "Please wait…" : isDemoAlias(authData.email) ? "Sign In" : "Sign Up"}
+                {authPending ? "Please wait…" : isDemoAccountIdentifier(authData.email) ? "Sign In" : "Sign Up"}
               </button>
               <button disabled={authPending} onClick={() => { setAuthMode("signin"); setAuthFeedback(null); }}>Already have an account? Sign In</button>
             </>
