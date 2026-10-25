@@ -1,1 +1,3 @@
 MuscleMap AI is a health, fitness, and wellness app powered by AI. After creating an account, users can chat with the AI about workouts, recovery, nutrition, or just health in general. What makes this different (and better) than other AI apps is that it has a 3d body map; instead of having to describe where you want information on, you can just click that part on the body map, and the AI will have that in its context and will give appropriate answers with that in mind. The app also allows you to personalize it a lot, allowing you to change what equipment you have, whether you have a home setup or a full gym.
+
+FOR JUDGES, USE USERNAME demo AND PASSWORD IL11DEMO_CAC
